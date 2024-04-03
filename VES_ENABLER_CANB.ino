@@ -26,6 +26,7 @@ volatile uint8_t timeH = 0, timeM = 0, timeS = 0;  //The radio does not keep tim
 uint8_t keyState = 0x41;                  //initial state = key-in, accessory on
 uint8_t lightsDriving = 0x02;             //initial state = dash illuminated
 uint8_t lightsDashIntensity = 0xC8;       //initial state = max illimunation
+uint8_t VES = 0x00;                       //VES 00 - disable, 01 - enable
 
 String SerialRXBuffer = "";
 bool SerialRXSpecial = false;
@@ -92,9 +93,12 @@ void loop()
     delay(30);
   else
   {
-    // VES Lockpic
-    canSend(0x322, 0x01, 0x70, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00); delay(25); //Ves configuration
-    canSend(0x3B4, 0x00, 0x04, 0x00, 0x07, 0x00, 0x00, 0x00, 0x07); delay(25); //Ves AUX VIDEO
+    if ( VES == 0x01 )
+    {
+      // VES Lockpic
+      canSend(0x322, 0x01, 0x70, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00); delay(25); //Ves configuration
+      canSend(0x3B4, 0x00, 0x04, 0x00, 0x07, 0x00, 0x00, 0x00, 0x07); delay(25); //Ves AUX VIDEO
+    }
   }
 }
 
@@ -240,6 +244,14 @@ void checkSerial()
     char RX = Serial.read();
     if (!SerialRXSpecial)
     {
+      if ( RX == '0' ) //VES off
+      {
+        VES = 0x00;
+      }
+      if ( RX == '1' ) //VES on
+      {
+        VES = 0x01;
+      }
       if ( RX == 'I' || RX == 'i' ) //power on
       {
         keyState = 0x41;
