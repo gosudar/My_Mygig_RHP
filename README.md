@@ -1,4 +1,4 @@
-**Unlock VES for MyGIG all Jeep, Dodge, Chrysler.**
+**Unlock VES for MyGIG  Jeep, Dodge, Chrysler.**
 
 LOW can speed - _VES_ENABLER_CANB.ino_ 
 
