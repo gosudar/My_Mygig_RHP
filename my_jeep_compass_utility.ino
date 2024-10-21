@@ -38,7 +38,7 @@ bool RKE_Trunk_Button_flag = false;
 int EnableFogLeft = 7; // Инициализация переменной EnableFogLeft к выводу 7
 int EnableFogRight = 6;// Инициализация переменной EnableFogRight к выводу 6
 int Steering_Wheel_1 = 4;// Инициализация переменной Steering_Wheel_1 к выводу 4
-int RKE_Trunk_Button = 4;// Инициализация переменной Steering_Wheel_1 к выводу 3
+int RKE_Trunk_Button = 3;// Инициализация переменной Steering_Wheel_1 к выводу 3
 
 int Temp_Button_SW1 = 0;//счетчик удержания левой центральной подрулевой кнопки
 
