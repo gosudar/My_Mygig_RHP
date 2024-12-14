@@ -1,11 +1,13 @@
 /******************************************************************************************
  * Project    : MY Jeep Compass Utility/MyGIG RHP
  * Hack for my Jeep Compass MyGIG RHP and Utility
+ * Version 1.4
  * Features:
  *  - Emulating VES presense to enable VIDEO AUX IN in MyGIG head unit
  *  - Enable intelligent cornering light
  *  - Enable digital output when pressing the steering wheel button
- *  - Enable digital output whrn pressing fobik Trunk button
+ *  - Enable digital output when pressing fobik Trunk button
+ *  - Enable digital output whrn pressing fobik Lock button
  *
  * Copyright (C) 2024 DMITRY GOSUDAR <gosudar1@narod.ru>
  * http://gosudar.org.ru
@@ -22,44 +24,48 @@
 
 #include <CAN.h>
 
-volatile uint8_t timeH = 0, timeM = 0, timeS = 0;  //The radio does not keep time, it only sets and displays time.
-
 uint8_t keyState = 0x00;                  //initial state = key-in, accessory on
 
 String SerialRXBuffer = "";
 bool SerialRXSpecial = false;
+bool Engine_Run = false;// Engine Status true - run, false - off
 bool FrontFogON = false;// Включены ли туманки? true-on, false-off
 bool EnableTempFog = 0;//Временная переменная для отслеживания статуса Enable Fog
 bool RightFog = false;// Включать правую туманку? true-on, false-off
 bool LeftFog = false;// Включать левую туманку? true-on, false-off
 bool Steering_Wheel_1_flag = false;//флаг длительного нажатия true-on, false-off
 bool RKE_Trunk_Button_flag = false;
+bool RKE_Alarm_ON_flag = false;
+bool Remote_start;//Remote start true-on, false-off
+bool Jeep_Alarm_Status;//Alarm status true-on, false-off
 
 int EnableFogLeft = 7; // Инициализация переменной EnableFogLeft к выводу 7
 int EnableFogRight = 6;// Инициализация переменной EnableFogRight к выводу 6
+int RKE_Alarm_ON = 5;// Инициализация переменной Alarm_ON к выводу 5
 int Steering_Wheel_1 = 4;// Инициализация переменной Steering_Wheel_1 к выводу 4
 int RKE_Trunk_Button = 3;// Инициализация переменной Steering_Wheel_1 к выводу 3
 
 int Temp_Button_SW1 = 0;//счетчик удержания левой центральной подрулевой кнопки
+int reset_az_stage = 0;//счетчик кол-ва АЗ
 
+int Jeep_RPM = 0;
+int Jeep_Speed = 0;
+uint8_t Jeep_Gear = 0;
+
+float Jeep_Temp_Outdoor = 0;
+float Jeep_Batt;
+
+uint32_t my_reset_az;
 
 //Define subroutines
-void Enable_VES();
+//void Enable_VES();
 void Check_FOG();
 void Check_Steering_Wheel();
 void Check_RKE_Button();
+void Check_Counter_AZ();
 
 void setup()
-{
-  noInterrupts();
-  TCCR1A = 0;
-  TCCR1B = 0;
-  OCR1A = 62500;            // compare match register 16MHz/256
-  TCCR1B |= (1 << WGM12);   // CTC mode
-  TCCR1B |= (1 << CS12);    // 256 prescaler 
-  TIMSK1 |= (1 << OCIE1A);  // enable timer compare interrupt
-  interrupts();
-  
+{ 
   Serial.begin(115200);
 
   //these settings are dependant on the CAN module being used. CS could be pin 9 or 10
@@ -77,6 +83,8 @@ void setup()
   digitalWrite(Steering_Wheel_1, LOW);// Устанавливаем на нем 0 (выкл)
   pinMode(RKE_Trunk_Button, OUTPUT); // Установим вывод как выход
   digitalWrite(RKE_Trunk_Button, LOW);// Устанавливаем на нем 0 (выкл)
+  pinMode(RKE_Alarm_ON, OUTPUT); // Установим вывод как выход
+  digitalWrite(RKE_Alarm_ON, LOW);// Устанавливаем на нем 0 (выкл)
  
   if (!CAN.begin(83E3))      //start the CAN bus at 83.333 kbps 
   {
@@ -85,26 +93,8 @@ void setup()
   }
 
   CAN.onReceive(onCANReceive);
+  Serial.println("MY Jeep Compass utility v 1.4 start:");
 
-  Serial.println("MY Jeep Compass utility start:");
-
-}
-
-ISR(TIMER1_COMPA_vect)
-{
-  timeS++;
-  if (timeS > 59)
-  {
-    timeS = 0;
-    timeM++;
-  }
-  if (timeM > 59)
-  {
-    timeM = 0;
-    timeH++;
-  }
-  if (timeH > 23)
-    timeH = 0;
 }
 
 void loop()
@@ -119,6 +109,7 @@ void loop()
    Check_FOG();   // Check FOG 
    Check_Steering_Wheel();  // Check Steering Wheel buttons
    Check_RKE_Button();      // Check RKE fobic buttons
+   Check_Counter_AZ();
    //delay(30);
 }
 
@@ -139,6 +130,7 @@ void Check_RKE_Button()
   //RKE_Trunk_Button
   if (RKE_Trunk_Button_flag == true)
   {
+    reset_counter_az();// to do: reset counter remote start
     if (digitalRead(RKE_Trunk_Button) == 0)
     { 
       Serial.println("---Fobik Key Enabled = OUT ON ---");
@@ -152,6 +144,19 @@ void Check_RKE_Button()
       delay(5);
     }
     RKE_Trunk_Button_flag = false;
+  }
+  //RKE_Alarm_ON
+  if (RKE_Alarm_ON_flag == true)
+  {
+    // Fobik Key Enabled Alarm ON
+    if (digitalRead(RKE_Alarm_ON) == 0)
+    { 
+      Serial.println("---Fobik Key Enabled = Alarm ON ---");
+      digitalWrite(RKE_Alarm_ON, HIGH);
+      delay(500);
+      digitalWrite(RKE_Alarm_ON, LOW);
+    }
+    RKE_Alarm_ON_flag = false;
   }
 }
 
@@ -259,9 +264,20 @@ void onCANReceive(int packetSize)
     case 0x000:
       //keyState: 00 = no key, 01 = key in, 41 = accessory, 81 = run, 21 = start
       keyState = parameters[0];
+      if (parameters[0] == 0x81)
+      {
+        Engine_Run = true;
+      }
+      else
+      {
+        Engine_Run = false;
+      }    
       break;
 
     case 0x015:
+      Jeep_Batt = parameters[1] / 10;
+      Jeep_Temp_Outdoor = parameters[0] / 10;
+      
       if ( parameters[4] == 0x12 || parameters[4] == 0x13 ) //Left
       //if ( parameters[4] == 0x13 ) //Left
       {
@@ -319,7 +335,12 @@ void onCANReceive(int packetSize)
       if ( parameters[0] == 0x05 ) //RKE key Trunk
       {
         RKE_Trunk_Button_flag = true; // Enable RKE key Trunk
-        Serial.print("---Fobic Key Enabled----"); Serial.println();
+        Serial.print("---Fobic Key Enabled Trunc----"); Serial.println();
+      }
+      if ( parameters[0] == 0x01 or parameters[0] == 0x09 ) //RKE key Alarm ON
+      {
+        RKE_Alarm_ON_flag = true; // Enable RKE key Alarm ON
+        Serial.print("---Fobic Key Enabled Alarm ON----"); Serial.println();
       }
     break;
 
@@ -338,6 +359,38 @@ void onCANReceive(int packetSize)
   }
 }
 
+void Check_Counter_AZ()
+{
+  if (keyState == 0x81 or keyState == 0x41 or keyState == 0x61)
+  {
+    //reset counter AZ stage=0
+    Serial.print("---Key-in Stop RESET counter az--- ");Serial.println();
+    reset_az_stage = 0;
+  }
+  
+  if (reset_az_stage == 2)
+  {
+    if (millis() - my_reset_az >= 9999) 
+    {
+      // сброс счетчика количества АЗ
+      Serial.print("---RESET COUNTER AZ START--- ");Serial.println();
+      reset_counter_az();
+      reset_az_stage = 0;
+      my_reset_az = millis();
+    }
+  }
+}
+
+void reset_counter_az()
+{
+  // сброс счетчика количества АЗ
+  // canId 11D, byte0=40 - Flash High Beams
+  Serial.println("---Reset counter AZ----");
+  canSend(0x11D, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00);// Flash High Beam
+  // to do function reset 
+  delay(5);
+}
+
 void checkSerial()
 {
   if (Serial.available())
@@ -345,6 +398,12 @@ void checkSerial()
     char RX = Serial.read();
     if (!SerialRXSpecial)
     {
+      if ( RX == 'R' || RX == 'r' ) //RKE
+      {
+        //keyState = 0x41;
+        RKE_Trunk_Button_flag = true;
+        //canSend(0x000, keyState, 0x00, 0x00, 0x00, 0x00, 0x00); delay(5);
+      }
       if ( RX == 'I' || RX == 'i' ) //power on
       {
         keyState = 0x41;
@@ -355,7 +414,22 @@ void checkSerial()
         keyState = 0x00;
         canSend(0x000, keyState, 0x00, 0x00, 0x00, 0x00, 0x00); delay(5);
       }
-
+      if ( RX == 'A' || RX == 'a' ) //AZ
+      {
+        //keyState = 0x00;
+        //canSend(0x000, keyState, 0x00, 0x00, 0x00, 0x00, 0x00); delay(5);
+        //key_act = 0x08;
+        //key_id = 0x91;        
+      }
+      if ( RX == 'Z' || RX == 'z' ) //AZ
+      {
+        //key_act = 0x08;
+        //key_id = 0x01;
+        keyState = 0x41;
+        Check_Counter_AZ();
+        keyState = 0x00;
+        //canSend(0x000, keyState, 0x00, 0x00, 0x00, 0x00, 0x00); delay(5);       
+      }
       if ( RX == 'T' || RX == 't' ) //set time
       {
         SerialRXBuffer = RX;
@@ -370,11 +444,6 @@ void checkSerial()
         String tempVal = "";
         char tempArray[8];
         tempVal = SerialRXBuffer.substring(1,3);
-        tempVal.toCharArray(tempArray,sizeof(tempArray));
-        timeH = strtol(tempArray, 0, 0);
-        tempVal = SerialRXBuffer.substring(3,5);
-        tempVal.toCharArray(tempArray,sizeof(tempArray));
-        timeM = strtol(tempArray, 0, 0);
         SerialRXBuffer = "";
         SerialRXSpecial = false;
       }
