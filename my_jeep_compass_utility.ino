@@ -7,7 +7,7 @@
  *  - Enable intelligent cornering light
  *  - Enable digital output when pressing the steering wheel button
  *  - Enable digital output when pressing fobik Trunk button
- *  - Enable digital output whrn pressing fobik Lock button
+ *  - Enable digital output when pressing fobik Lock button
  *
  * Copyright (C) 2024 DMITRY GOSUDAR <gosudar1@narod.ru>
  * http://gosudar.org.ru
@@ -28,16 +28,16 @@ uint8_t keyState = 0x00;                  //initial state = key-in, accessory on
 
 String SerialRXBuffer = "";
 bool SerialRXSpecial = false;
-bool Engine_Run = false;// Engine Status true - run, false - off
+bool Engine_Run = false;// Статус двигателя true - run, false - off
 bool FrontFogON = false;// Включены ли туманки? true-on, false-off
 bool EnableTempFog = 0;//Временная переменная для отслеживания статуса Enable Fog
 bool RightFog = false;// Включать правую туманку? true-on, false-off
 bool LeftFog = false;// Включать левую туманку? true-on, false-off
 bool Steering_Wheel_1_flag = false;//флаг длительного нажатия true-on, false-off
-bool RKE_Trunk_Button_flag = false;
-bool RKE_Alarm_ON_flag = false;
+bool RKE_Trunk_Button_flag = false;//флаг нажатия кнопки багажника true-on, false-off
+bool RKE_Alarm_ON_flag = false;//флаг нажатия кнопки постановки на охрану true-on, false-off
 bool Remote_start;//Remote start true-on, false-off
-bool Jeep_Alarm_Status;//Alarm status true-on, false-off
+bool Jeep_Alarm_Status;//Статус охраны true-on, false-off
 
 int EnableFogLeft = 7; // Инициализация переменной EnableFogLeft к выводу 7
 int EnableFogRight = 6;// Инициализация переменной EnableFogRight к выводу 6
@@ -46,14 +46,14 @@ int Steering_Wheel_1 = 4;// Инициализация переменной Stee
 int RKE_Trunk_Button = 3;// Инициализация переменной Steering_Wheel_1 к выводу 3
 
 int Temp_Button_SW1 = 0;//счетчик удержания левой центральной подрулевой кнопки
-int reset_az_stage = 0;//счетчик кол-ва АЗ
+int reset_az_stage = 0;//счетчик кол-ва remote start
 
-int Jeep_RPM = 0;
-int Jeep_Speed = 0;
-uint8_t Jeep_Gear = 0;
+int Jeep_RPM = 0;// обороты двигателя
+int Jeep_Speed = 0;// скорость авто
+uint8_t Jeep_Gear = 0;// статус передачи вариатора (акпп)
 
-float Jeep_Temp_Outdoor = 0;
-float Jeep_Batt;
+float Jeep_Temp_Outdoor = 0;// температура за бортом
+float Jeep_Batt;// бортовое напряжение
 
 uint32_t my_reset_az;
 
@@ -88,13 +88,12 @@ void setup()
  
   if (!CAN.begin(83E3))      //start the CAN bus at 83.333 kbps 
   {
-    Serial.println("Starting CAN0 failed!");
+    Serial.println("Error! Starting CAN0 failed!");
     while (1);
   }
 
   CAN.onReceive(onCANReceive);
   Serial.println("MY Jeep Compass utility v 1.4 start:");
-
 }
 
 void loop()
@@ -105,11 +104,11 @@ void loop()
     checkSerial();
   }
 
-   //Enable_VES();  // Enable VES - moved to Check_Steering_Wheel
-   Check_FOG();   // Check FOG 
+   //Enable_VES();          // Enable VES - moved to Check_Steering_Wheel
+   Check_FOG();             // Check FOG 
    Check_Steering_Wheel();  // Check Steering Wheel buttons
    Check_RKE_Button();      // Check RKE fobic buttons
-   Check_Counter_AZ();
+   Check_Counter_AZ();      // Check counter Remote start
    //delay(30);
 }
 
@@ -119,7 +118,7 @@ void Enable_VES()
     delay(30);
   else
   {
-    // VES Lockpic
+    // VES Lockpic for Mygig
     canSend(0x322, 0x01, 0x70, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00); delay(25); //Ves configuration
     canSend(0x3B4, 0x00, 0x04, 0x00, 0x07, 0x00, 0x00, 0x00, 0x07); delay(25); //Ves AUX VIDEO
   }
@@ -133,13 +132,13 @@ void Check_RKE_Button()
     reset_counter_az();// to do: reset counter remote start
     if (digitalRead(RKE_Trunk_Button) == 0)
     { 
-      Serial.println("---Fobik Key Enabled = OUT ON ---");
+      Serial.println("---Fobik Key Trunk Enabled = OUT ON ---");
       digitalWrite(RKE_Trunk_Button, HIGH);
       delay(5);
     }
     else
     {
-      Serial.println("---Fobik Key Enabled = OUT OFF ---");
+      Serial.println("---Fobik Key Trunk Enabled = OUT OFF ---");
       digitalWrite(RKE_Trunk_Button, LOW);
       delay(5);
     }
@@ -148,10 +147,10 @@ void Check_RKE_Button()
   //RKE_Alarm_ON
   if (RKE_Alarm_ON_flag == true)
   {
-    // Fobik Key Enabled Alarm ON
+    // Fobik Key Enabled Lock
     if (digitalRead(RKE_Alarm_ON) == 0)
     { 
-      Serial.println("---Fobik Key Enabled = Alarm ON ---");
+      Serial.println("---Fobik Key Lock Enabled = Lock Alarm ON ---");
       digitalWrite(RKE_Alarm_ON, HIGH);
       delay(500);
       digitalWrite(RKE_Alarm_ON, LOW);
@@ -337,10 +336,10 @@ void onCANReceive(int packetSize)
         RKE_Trunk_Button_flag = true; // Enable RKE key Trunk
         Serial.print("---Fobic Key Enabled Trunc----"); Serial.println();
       }
-      if ( parameters[0] == 0x01 or parameters[0] == 0x09 ) //RKE key Alarm ON
+      if ( parameters[0] == 0x01 or parameters[0] == 0x09 ) //RKE key Lock (Alarm ON)
       {
-        RKE_Alarm_ON_flag = true; // Enable RKE key Alarm ON
-        Serial.print("---Fobic Key Enabled Alarm ON----"); Serial.println();
+        RKE_Alarm_ON_flag = true; // Enable RKE key Lock (Alarm ON)
+        Serial.print("---Fobic Key Enabled Lock Alarm ON----"); Serial.println();
       }
     break;
 
@@ -386,7 +385,7 @@ void reset_counter_az()
   // сброс счетчика количества АЗ
   // canId 11D, byte0=40 - Flash High Beams
   Serial.println("---Reset counter AZ----");
-  canSend(0x11D, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00);// Flash High Beam
+  canSend(0x11D, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00);// Flash High Beam. Мигнем фарами
   // to do function reset 
   delay(5);
 }
@@ -451,9 +450,7 @@ void checkSerial()
   }
 }
 
-
 //helper functions...
-
 void canSend(uint32_t ID, uint8_t b0)
 {
   uint8_t b[1];
