@@ -25,6 +25,7 @@
 #include <CAN.h>
 
 uint8_t keyState = 0x00;                  //initial state = key-in, accessory on
+uint8_t Trunk_reset_counter_az = 0x00;       //reset az with fobik trunk button 00 - disable, 01 - enable
 
 String SerialRXBuffer = "";
 bool SerialRXSpecial = false;
@@ -129,7 +130,10 @@ void Check_RKE_Button()
   //RKE_Trunk_Button
   if (RKE_Trunk_Button_flag == true)
   {
-    reset_counter_az();// to do: reset counter remote start
+    if ( Trunk_reset_counter_az == 0x01 )
+    {
+      reset_counter_az();// to do: reset counter remote start
+    }
     if (digitalRead(RKE_Trunk_Button) == 0)
     { 
       Serial.println("---Fobik Key Trunk Enabled = OUT ON ---");
