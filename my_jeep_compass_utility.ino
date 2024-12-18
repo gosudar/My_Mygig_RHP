@@ -99,6 +99,7 @@ void setup()
 
 void loop()
 {
+  // checkSerial() for testing
   for (uint16_t y = 0; y < 900; y++)  //~900mS delay while checking serial.
   {
     delay(1);
@@ -224,7 +225,6 @@ void Check_FOG()
     {
       //Fog left disable
       EnableTempFog = false;
-
       if (digitalRead(EnableFogLeft) != 0)
       { 
         digitalWrite(EnableFogLeft, LOW);
@@ -347,7 +347,6 @@ void onCANReceive(int packetSize)
       }
     break;
 
-    
     default:
       //Output information from unexpected packets
 //      Serial.print("0x");
@@ -404,36 +403,22 @@ void checkSerial()
       if ( RX == 'R' || RX == 'r' ) //RKE
       {
         //keyState = 0x41;
-        RKE_Trunk_Button_flag = true;
+        //RKE_Trunk_Button_flag = true;
         //canSend(0x000, keyState, 0x00, 0x00, 0x00, 0x00, 0x00); delay(5);
-      }
-      if ( RX == 'I' || RX == 'i' ) //power on
-      {
-        keyState = 0x41;
-        canSend(0x000, keyState, 0x00, 0x00, 0x00, 0x00, 0x00); delay(5);
-      }
-      if ( RX == 'O' || RX == 'o' ) //power off
-      {
-        keyState = 0x00;
-        canSend(0x000, keyState, 0x00, 0x00, 0x00, 0x00, 0x00); delay(5);
       }
       if ( RX == 'A' || RX == 'a' ) //AZ
       {
         //keyState = 0x00;
-        //canSend(0x000, keyState, 0x00, 0x00, 0x00, 0x00, 0x00); delay(5);
-        //key_act = 0x08;
-        //key_id = 0x91;        
+        //canSend(0x000, keyState, 0x00, 0x00, 0x00, 0x00, 0x00); delay(5);       
       }
       if ( RX == 'Z' || RX == 'z' ) //AZ
       {
-        //key_act = 0x08;
-        //key_id = 0x01;
-        keyState = 0x41;
-        Check_Counter_AZ();
-        keyState = 0x00;
+        //keyState = 0x41;
+        //Check_Counter_AZ();
+        //keyState = 0x00;
         //canSend(0x000, keyState, 0x00, 0x00, 0x00, 0x00, 0x00); delay(5);       
       }
-      if ( RX == 'T' || RX == 't' ) //set time
+      if ( RX == 'T' || RX == 't' )
       {
         SerialRXBuffer = RX;
         SerialRXSpecial = true;
