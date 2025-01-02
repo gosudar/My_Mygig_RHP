@@ -335,6 +335,12 @@ void onCANReceive(int packetSize)
       break;
 
     case 0x012:
+      if (parameters[0] == 0x08 and (parameters[1] == 0x01 or parameters[1] == 0x02 or parameters[1] == 0x03 or parameters[1] == 0x04 or parameters[1] == 0x05))
+      {
+        reset_az_stage += 1;
+        Serial.print("---Counter Remote Start Updated = ");Serial.print(reset_az_stage);Serial.print("----"); Serial.println();
+        my_reset_az = millis();
+      }
       if ( parameters[0] == 0x05 ) //RKE key Trunk
       {
         RKE_Trunk_Button_flag = true; // Enable RKE key Trunk
