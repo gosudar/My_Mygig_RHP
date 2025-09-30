@@ -1,7 +1,7 @@
 /******************************************************************************************
  * Project    : MY Jeep Compass Utility/MyGIG RHP
  * Hack for my Jeep Compass MyGIG RHP and Utility
- * * Version 2.1.2
+ * * Version 2.1.3
  * Features:
  *  - Emulating VES presense to enable VIDEO AUX IN in MyGIG head unit
  *  - Enable intelligent cornering light
@@ -11,7 +11,8 @@
  *  - Enable digital output when pressing fobik Unlock button
  *  - Reset counter factory Remote Start (manual)
  *  - Activation hazards warning lights when reversing
- *  - Beeps with alarm on/off
+ *  - Beeps with alarm on/alarm off
+ *  - Enable heat seats with factory remote start
  *  
  *  Settings:
  *  - Long press central left button - enable digital output for ip-tv
@@ -34,11 +35,11 @@
  * 
  ******************************************************************************************/
 
-/***************************************
+/****************************
  * Start Global settings special functions
  * -true - enable fuction
  * -false - disable function
- *************************************/
+ ****************************/
  bool Settings_VES = true;            // Разрешена эмуляция VES
  bool Settings_FOG = true;            // Разрешен подсвет поворота
  bool Settings_COUNTER_AZ = true;     // Разрешен сброс счетчика
@@ -46,11 +47,12 @@
  bool Settings_HAZARDS = true;        // Разрешена аварийка при ЗХ
  bool Settings_HOT_TEMP = true;       // Учитывать уличную температура ниже нуля
  bool Settings_RKE_TRUNK = true;      // Учитывать нажатие кнопки багажника 
- bool Settings_RKE_LOCK = true;       // разрешена обработка кнопки RKE - Lock
- bool Settings_RKE_UNLOCK = true;     // разрешена обработка кнопки RKE - Unlock  
- /************************************
+ bool Settings_RKE_LOCK = true;       // Разрешена обработка кнопки RKE - Lock
+ bool Settings_RKE_UNLOCK = true;     // Разрешена обработка кнопки RKE - Unlock 
+ bool Settings_HEAT_SEAT = true;      // Разрешено включение обогрева при АЗ 
+ /***************************
  * Stop Global special settings
- *************************************/
+ ****************************/
 #include <CAN.h>
 
 uint8_t keyState = 0x00;            // initial state = no-key, all-off
@@ -86,6 +88,9 @@ byte Jeep_Speed = 0;                // скорость авто
 byte Jeep_Gear = 0;                 // селектор коробки
 byte Jeep_Temp_Outdoor = 0x51;      // температура за бортом
 //float Jeep_Batt;                  // напряжение
+byte HeatSeat_Status_1 = 0;			// статус обогрева левого сидения
+byte HeatSeat_Status_2 = 0;			// статус обогрева правого сидения
+byte Defrost_Rear = 0;              // статус обогрева стекла
 
 uint32_t my_reset_az;               // временная задержка для сброса счетчика АЗ
 uint32_t my_hasard_on;              // временная задержка для аварийки при ЗХ
@@ -418,6 +423,37 @@ void Check_FOG()
   }
 }
 
+void Check_HeatSeat()
+{
+  if (Settings_HEAT_SEAT == true)
+  {
+    // В глоальных настройках разрешено включать подогрев сидений при штатном АЗ
+    if ((Remote_start == true) and (Engine_Run == true) and (Defrost_Rear == 0x80))
+    {
+      // Двигатель работает на штатном АЗ и обогрев заднего стекла включен
+      if ((Settings_HOT_TEMP == true) and (Jeep_Temp_Outdoor <= 0x50))
+      {
+        // Температура за бортом ниже нуля и в глобальных настройках разрешено по температуре
+        if (HeatSeat_Status_1 == 0x00)
+        {
+          // Подогрев левого сидения выключен
+          canSend(0x02E, 0x03, 0x10, 0x00, 0x00, 0x00, 0x00); delay(25); // включаем левый попогрей
+        }
+        if (HeatSeat_Status_2 == 0x00)
+        {
+          // Подогрев правого сидения выключен
+          canSend(0x02E, 0x03, 0x80, 0x00, 0x00, 0x00, 0x00); delay(25); // включаем правый попогрей
+        }
+        Serial.println(F("---Heat Seat send to enable---"));
+      }
+      else
+      {
+        Serial.println(F("---Ops! NOT Low temp outdoor---"));
+      }
+    }
+  }
+}
+
 void onCANReceive(int packetSize) 
 {
   if (CAN.packetRtr()) 
@@ -551,9 +587,54 @@ void onCANReceive(int packetSize)
       }
       break;
     
+    case 0x09C:
+      HeatSeat_Status_1 = parameters[0];
+      HeatSeat_Status_2 = parameters[1];
+      if (CAN_LOGS == true)
+      {
+        Serial.print("0x");
+        Serial.print(packetID, HEX);
+        Serial.print(" Heat Seat status: ");
+        Serial.print(packetSize);
+        for (uint8_t x = 0; x < packetSize; x++)
+        {
+          Serial.print(" 0x"); Serial.print(parameters[x], HEX);
+        }
+        Serial.println();
+      }
+      break;
+	
+    case 0x0EC:
+      Defrost_Rear = parameters[0];
+      if (CAN_LOGS == true)
+      {
+        Serial.print("0x");
+        Serial.print(packetID, HEX);
+        Serial.print(" HVAC - AC, Defrost: ");
+        Serial.print(packetSize);
+        for (uint8_t x = 0; x < packetSize; x++)
+        {
+          Serial.print(" 0x"); Serial.print(parameters[x], HEX);
+        }
+        Serial.println();
+      }
+      break;
+	
     case 0x11D:
       Jeep_Wiper = parameters[1];
       Jeep_Hasards = parameters[0];
+      if (CAN_LOGS == true)
+      {
+        Serial.print("0x");
+        Serial.print(packetID, HEX);
+        Serial.print(" TIPM status - wiper, hasards: ");
+        Serial.print(packetSize);
+        for (uint8_t x = 0; x < packetSize; x++)
+        {
+          Serial.print(" 0x"); Serial.print(parameters[x], HEX);
+        }
+        Serial.println();
+      }
       break;
 
     case 0x3A0:
@@ -711,6 +792,7 @@ void reset_counter_az()
   // сброс счетчика количества АЗ
   Serial.println(F("---Reset counter AZ----"));
   canSend(0x11D, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00);// Flash High Beam
+  delay(255);
   Serial.println(F("---Stop Reset counter AZ----"));
 }
 
