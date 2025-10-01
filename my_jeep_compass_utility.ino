@@ -91,6 +91,7 @@ byte Jeep_Temp_Outdoor = 0x51;      // температура за бортом
 byte HeatSeat_Status_1 = 0;			// статус обогрева левого сидения
 byte HeatSeat_Status_2 = 0;			// статус обогрева правого сидения
 byte Defrost_Rear = 0;              // статус обогрева стекла
+byte Demo_FOG = 0;
 
 uint32_t my_reset_az;               // временная задержка для сброса счетчика АЗ
 uint32_t my_hasard_on;              // временная задержка для аварийки при ЗХ
@@ -801,6 +802,90 @@ void beep()
   // Beep
   // to do: check parameter Jeep_Hasards
   canSend(0x11D, 0x80, Jeep_Wiper, 0x00, 0x00, 0x00, 0x00);
+}
+
+void demo_fog()
+{
+  if (Demo_FOG != 0)
+  {
+    //Demo_FOG
+    if (FrontFogON == false)
+    {
+      //
+      if ((Demo_FOG > 1) and (Demo_FOG <= 30))
+      {
+        //step 1 Right fog
+        if (digitalRead(EnableFogLeft) == 0)
+        { 
+          digitalWrite(EnableFogLeft, HIGH);
+          delay(5);
+          Serial.println(F("---Demo Left Fog OFF---")); 
+        }
+        if (digitalRead(EnableFogRight) != 0)
+        { 
+          digitalWrite(EnableFogRight, LOW);
+          delay(5);
+          Serial.println(F("---Demo Right Fog ON---"));
+        } 
+      }
+      
+      if ((Demo_FOG > 31) and (Demo_FOG <= 60))
+      {
+        //step 2
+        if (digitalRead(EnableFogRight) == 0)
+        { 
+          digitalWrite(EnableFogRight, HIGH);
+          delay(5);
+          Serial.println(F("---Demo Right Fog OFF---"));  
+        }
+        if (digitalRead(EnableFogLeft) != 0)
+        { 
+          digitalWrite(EnableFogLeft, LOW);
+          delay(5);
+          Serial.println(F("---Demo Left Fog ON---"));
+        }
+      }
+      Demo_FOG += 1;    
+      if (Demo_FOG > 60)
+      {
+        //next step Demo FOG
+        Demo_FOG = 1;
+        if (digitalRead(EnableFogLeft) == 0)
+        { 
+          digitalWrite(EnableFogLeft, HIGH);
+          delay(5);
+          Serial.println(F("---Demo all Fog OFF: Left---")); 
+        }
+        if (digitalRead(EnableFogRight) == 0)
+        { 
+          digitalWrite(EnableFogRight, HIGH);
+          delay(5);
+          Serial.println(F("---Demo all Fog OFF: Right---"));
+        } 
+      }
+    }
+    else
+    {
+      if (digitalRead(EnableFogLeft) == 0)
+      { 
+        digitalWrite(EnableFogLeft, HIGH);
+        delay(5);
+        Serial.println(F("---Demo all Fog OFF: Left---")); 
+      }
+      if (digitalRead(EnableFogRight) == 0)
+      { 
+        digitalWrite(EnableFogRight, HIGH);
+        delay(5);
+        Serial.println(F("---Demo all Fog OFF: Right---"));
+      }   
+    }
+    
+    if (Engine_Run == false)
+    {
+      // kill demo fog
+      Demo_FOG = 0;
+    }
+  }
 }
 
 void checkSerial()
