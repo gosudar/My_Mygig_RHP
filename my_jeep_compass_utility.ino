@@ -1,7 +1,7 @@
 /******************************************************************************************
  * Project    : MY Jeep Compass Utility/MyGIG RHP
  * Hack for my Jeep Compass MyGIG RHP and Utility
- * * Version 2.1.3
+ * * Version 2.1.4
  * Features:
  *  - Emulating VES presense to enable VIDEO AUX IN in MyGIG head unit
  *  - Enable intelligent cornering light
@@ -12,12 +12,15 @@
  *  - Reset counter factory Remote Start (manual)
  *  - Activation hazards warning lights when reversing
  *  - Beeps with alarm on/alarm off
+ *  - Auto auto-detection HSM (HeatSeatModule)
  *  - Enable heat seats with factory remote start
+ *  - Added Demo Fog
  *  
  *  Settings:
  *  - Long press central left button - enable digital output for ip-tv
  *  - Long press central right button - enable/disable hasards with rear
  *  - Long press left up button - enable/disable beep with lock/unlock alarm
+ *  - Long press left down button - enable demo fog
  *  
  *  Hardware - pins 10,2 ClockFrequency - 8E6
  *  
@@ -49,7 +52,8 @@
  bool Settings_RKE_TRUNK = true;      // Учитывать нажатие кнопки багажника 
  bool Settings_RKE_LOCK = true;       // Разрешена обработка кнопки RKE - Lock
  bool Settings_RKE_UNLOCK = true;     // Разрешена обработка кнопки RKE - Unlock 
- bool Settings_HEAT_SEAT = true;      // Разрешено включение обогрева при АЗ 
+ bool Settings_HEAT_SEAT = false;     // Автоопределение HSM, включение обогрева при АЗ 
+ bool Settings_DEMO_FOG = true;       // Разрешен демо режим противотуманок 
  /***************************
  * Stop Global special settings
  ****************************/
@@ -88,10 +92,10 @@ byte Jeep_Speed = 0;                // скорость авто
 byte Jeep_Gear = 0;                 // селектор коробки
 byte Jeep_Temp_Outdoor = 0x51;      // температура за бортом
 //float Jeep_Batt;                  // напряжение
-byte HeatSeat_Status_1 = 0;			// статус обогрева левого сидения
-byte HeatSeat_Status_2 = 0;			// статус обогрева правого сидения
+byte HeatSeat_Status_1 = 0;         // статус обогрева левого сидения
+byte HeatSeat_Status_2 = 0;         // статус обогрева правого сидения
 byte Defrost_Rear = 0;              // статус обогрева стекла
-byte Demo_FOG = 0;
+byte Demo_FOG = 0;                  // статус демо режима противотуманок
 
 uint32_t my_reset_az;               // временная задержка для сброса счетчика АЗ
 uint32_t my_hasard_on;              // временная задержка для аварийки при ЗХ
@@ -144,6 +148,8 @@ void loop()
   Check_RKE_Button();     // Check RKE fobic buttons
   Check_Counter_AZ();     // Check counter AZ
   Check_Hasards();        // Check Hasards ON
+  Check_HeatSeat();       // Check Heat Seat
+  demo_fog();             // Demo Fog
   delay(30);  
 }
 
@@ -350,6 +356,13 @@ void Check_Steering_Wheel()
         beep();// Beep
       }
     }
+	
+    if ((Settings_DEMO_FOG == true) and (Temp_Button_SW1 == 0x10))
+    {
+      Demo_FOG = 1;
+      Serial.println(F("---Demo Fog Enabled ---"));
+      beep();// Beep
+    }
     
     Temp_Button_SW1 = 0;//сброс счетчика нажатий
     Steering_Wheel_1_flag = false;
@@ -358,6 +371,11 @@ void Check_Steering_Wheel()
 
 void Check_FOG()
 {
+  if (Settings_DEMO_FOG == true)
+  {
+    demo_fog();
+  }
+  
   if (Settings_FOG == true)
   {
     if ( (Engine_Run == true) && (FrontFogON == false) && (Jeep_Speed <= 9)  && (Jeep_Speed != 0) && (Jeep_Gear == 0x44))
@@ -428,11 +446,11 @@ void Check_HeatSeat()
 {
   if (Settings_HEAT_SEAT == true)
   {
-    // В глоальных настройках разрешено включать подогрев сидений при штатном АЗ
+    // В глобальных настройках разрешено включать подогрев сидений при штатном АЗ
     if ((Remote_start == true) and (Engine_Run == true) and (Defrost_Rear == 0x80))
     {
       // Двигатель работает на штатном АЗ и обогрев заднего стекла включен
-      if ((Settings_HOT_TEMP == true) and (Jeep_Temp_Outdoor <= 0x50))
+      if (Jeep_Temp_Outdoor <= 0x50)
       {
         // Температура за бортом ниже нуля и в глобальных настройках разрешено по температуре
         if (HeatSeat_Status_1 == 0x00)
@@ -583,8 +601,29 @@ void onCANReceive(int packetSize)
         }
         else
         {
-          FrontFogON = true; // only headlights
+          if (Demo_FOG != 0)
+          {
+            //Serial.println(F("---FrontFogON = false---"));
+            FrontFogON = false; // Demo Fog
+          }
+          else
+          {
+            //Serial.println(F("---FrontFogON = true---"));
+            FrontFogON = true; // only headlights
+          }
         }
+      }
+      if (CAN_LOGS == true)
+      {
+        Serial.print("0x");
+        Serial.print(packetID, HEX);
+        Serial.print(" Headlights: ");
+        Serial.print(packetSize);
+        for (uint8_t x = 0; x < packetSize; x++)
+        {
+          Serial.print(" 0x"); Serial.print(parameters[x], HEX);
+        }
+        Serial.println();
       }
       break;
     
@@ -639,7 +678,7 @@ void onCANReceive(int packetSize)
       break;
 
     case 0x3A0:
-      if ( parameters[0] == 0x20 or parameters[0] == 0x01 or parameters[0] == 0x08 ) //левый или правый подрулевой середина, левый подрулевой вверх
+      if ( parameters[0] == 0x20 or parameters[0] == 0x01 or parameters[0] == 0x08 or parameters[0] == 0x10 ) //левый или правый подрулевой середина, левый подрулевой вверх или вниз
       {
         // Нажата кнопка проверяем кол-во раз
         if ( Temp_Button_SW1 == 5 )
@@ -744,6 +783,10 @@ void onCANReceive(int packetSize)
         Serial.println();
       }
       break;
+
+    case 0x41B:
+      Settings_HEAT_SEAT = true;// HSM installed
+      break;
     
     default:
       if (CAN_LOGS == true)
@@ -793,7 +836,7 @@ void reset_counter_az()
   // сброс счетчика количества АЗ
   Serial.println(F("---Reset counter AZ----"));
   canSend(0x11D, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00);// Flash High Beam
-  delay(255);
+  delay(255); 
   Serial.println(F("---Stop Reset counter AZ----"));
 }
 
@@ -808,11 +851,16 @@ void demo_fog()
 {
   if (Demo_FOG != 0)
   {
+    if (Engine_Run == false)
+    {
+      // kill demo fog
+      Demo_FOG = 0;
+    }
     //Demo_FOG
     if (FrontFogON == false)
     {
       //
-      if ((Demo_FOG > 1) and (Demo_FOG <= 30))
+      if ((Demo_FOG > 1) and (Demo_FOG <= 10))
       {
         //step 1 Right fog
         if (digitalRead(EnableFogLeft) == 0)
@@ -829,9 +877,9 @@ void demo_fog()
         } 
       }
       
-      if ((Demo_FOG > 31) and (Demo_FOG <= 60))
+      if ((Demo_FOG > 11) and (Demo_FOG <= 20))
       {
-        //step 2
+        //step 2 Left Fog
         if (digitalRead(EnableFogRight) == 0)
         { 
           digitalWrite(EnableFogRight, HIGH);
@@ -845,8 +893,10 @@ void demo_fog()
           Serial.println(F("---Demo Left Fog ON---"));
         }
       }
-      Demo_FOG += 1;    
-      if (Demo_FOG > 60)
+	  
+      Demo_FOG += 1;
+	  
+      if (Demo_FOG > 21)
       {
         //next step Demo FOG
         Demo_FOG = 1;
@@ -863,6 +913,11 @@ void demo_fog()
           Serial.println(F("---Demo all Fog OFF: Right---"));
         } 
       }
+      if (Engine_Run == false)
+      {
+        // kill demo fog
+        Demo_FOG = 0;
+      }
     }
     else
     {
@@ -870,20 +925,16 @@ void demo_fog()
       { 
         digitalWrite(EnableFogLeft, HIGH);
         delay(5);
-        Serial.println(F("---Demo all Fog OFF: Left---")); 
+        Serial.println(F("---Demo fog stop. All Fog OFF: Left---")); 
       }
       if (digitalRead(EnableFogRight) == 0)
       { 
         digitalWrite(EnableFogRight, HIGH);
         delay(5);
-        Serial.println(F("---Demo all Fog OFF: Right---"));
-      }   
-    }
-    
-    if (Engine_Run == false)
-    {
+        Serial.println(F("---Demo fog stop. All Fog OFF: Right---"));
+      } 
       // kill demo fog
-      Demo_FOG = 0;
+      Demo_FOG = 0;  
     }
   }
 }
@@ -916,6 +967,12 @@ void checkSerial()
     {
        // wake on can 
        canSend(0x7FF, 0x00); delay(5);        
+    }
+    if ( RX == 'd' || RX == 'D' ) //
+    {
+      // demo fog
+      Demo_FOG = 1;
+      Serial.println(F("---Demo Fog Enabled ---"));        
     }
     if ( RX == 'b' ) //
     {
