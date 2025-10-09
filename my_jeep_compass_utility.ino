@@ -886,7 +886,7 @@ void Check_Counter_AZ()
 
 void reset_counter_az()
 {
-  // сброс счетчика количества АЗ
+  // сброс счетчика количества АЗ Demo
   Serial.println(F("---Reset counter AZ----"));
   canSend(0x11D, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00);// Flash High Beam
   delay(25);
