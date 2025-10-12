@@ -7,7 +7,7 @@
  *  - Enable intelligent cornering light
  *  - Enable digital output when pressing the steering wheel button
  *  - Enable digital output when pressing fobik Trunk button
- *  - Close mirrorws when 2x pressed fobik Lock button
+ *  - Close mirrors when 2x pressed fobik Lock button
  *  - Open mirrors when pressed fobik Unlock and engine run
  *  - Reset counter factory Remote Start (manual)
  *  - Activation hazards warning lights when reversing
@@ -42,8 +42,8 @@
 /****************************
  * Start Global settings special functions
  ****************************/
- bool Settings_VES = true;            // Разрешена эмуляция VES
- bool Settings_FOG = true;            // Разрешен подсвет поворота
+ bool Settings_VES = true;            // Разрешена эмуляция VES. Автоопределение VES на кан.
+ bool Settings_FOG = true;            // Разрешен подсвет поворота 
  bool Settings_HOT_TEMP = false;      // Учитывать уличную температуру. Default - false
  bool Settings_HEAT_SEAT = false;     // Автоопределение HSM, включение обогрева при АЗ 
  /***************************
@@ -72,8 +72,8 @@ bool Hasards_OFF = false;           // разрешение на включен�
 int Steering_Wheel_1 = 8;           // Инициализация переменной Steering_Wheel_1 к выводу 8
 int EnableFogLeft = 7;              // Инициализация переменной EnableFogLeft к выводу 7
 int EnableFogRight = 6;             // Инициализация переменной EnableFogRight к выводу 6
-int Mirrors_Open = 5;               // Инициализация переменной Alarm_ON к выводу 5
-int Mirrors_Close = 4;              // Инициализация переменной Alarm_OFF к выводу 4
+int Mirrors_Open = 5;               // Инициализация переменной Mirrors_Open к выводу 5
+int Mirrors_Close = 4;              // Инициализация переменной Mirrors_Close к выводу 4
 int RKE_Trunk_Button = 3;           // Инициализация переменной RKE_Trunk_Button к выводу 3
 int Temp_Button_SW1 = 0;            // счетчик удержания левой центральной подрулевой кнопки
 int reset_az_stage = 0;             // счетчик кол-ва АЗ
@@ -138,15 +138,14 @@ void loop()
     checkSerial();
   }
  
-  Enable_VES();           // Enable VES
-  Check_FOG();            // Check FOG
-  Check_Steering_Wheel(); // Check Steering Wheel buttons
-  Check_RKE_Button();     // Check RKE fobic buttons
-  Check_Counter_AZ();     // Check counter AZ
-  Check_Hasards();        // Check Hasards ON
-  Check_HeatSeat();       // Check Heat Seat
-  demo_fog();             // Demo Fog
-  Check_Mirrors();        // Check Mirrors
+  Enable_VES();           // Проверяем VES
+  Check_FOG();            // Проверяем туманки
+  Check_Steering_Wheel(); // Проверяем рулевые кнопки
+  Check_RKE_Button();     // Проверяем радио-кнопки фобика
+  Check_Counter_AZ();     // Проверка штатного автозапуска
+  Check_Hasards();        // Проверяем аварийку
+  Check_HeatSeat();       // Проверяем обогрева сидений
+  Check_Mirrors();        // Проверяем боковые зеркала
   delay(30);  
 }
 
@@ -167,8 +166,10 @@ void Enable_VES()
 
 void Check_Hasards()
 {
-  if ((Hasards_OFF == true) and (Jeep_Gear == 0x52) and (Engine_Run == true) and Jeep_Hasards == 0x00) // Задний ход, двигатель работает и ни аварийка, ни поворотники не мигают
+  // Проверяем аварийку
+  if ((Hasards_OFF == true) and (Jeep_Gear == 0x52) and (Engine_Run == true) and Jeep_Hasards == 0x00)
   {
+    // Задний ход, двигатель работает и ни аварийка, ни поворотники не мигают
     if (Hasards_ON == true)
     {
       if (millis() - my_hasard_on > 500) 
@@ -191,6 +192,7 @@ void Check_Hasards()
     }
     else
     {
+      // временная задержка миганий
       if (millis() - my_hasard_on > 1000) 
       {
         my_hasard_on = millis();
@@ -208,12 +210,13 @@ void Check_Hasards()
 
 void Check_Mirrors()
 {
-	if ((Settings_HOT_TEMP == true) and (Jeep_Temp_Outdoor > 0x50))
-	{
-    // Mirror Open
+  // Проверка боковых зеркал
+  if ((Settings_HOT_TEMP == true) and (Jeep_Temp_Outdoor > 0x50)) // по температурному датчику
+  {
+    // Открывание зеркал
     if ( Mirrors_Open_Stage != 0)
-    {
-      if ( Mirrors_Open_Stage == 1)
+    { // 01 - снято с охраны, 02 - снято с охраны и двигатель работает
+      if ( Mirrors_Open_Stage == 1)// проверяем Stage 01
       {
         // Оk. Снято с охраны, проверяем двигатель
         if (keyState == 0x81)
@@ -223,7 +226,7 @@ void Check_Mirrors()
           Mirrors_Open_Stage = 2;
         }
       }
-      if ( Mirrors_Open_Stage == 2)
+      if ( Mirrors_Open_Stage == 2)// проверяем Stage 02
       {
         //Охрана выкл, Двигатель работает, раскладываем зеркала   
         Serial.println(F("---Open mirrors ! ---"));     
@@ -241,13 +244,14 @@ void Check_Mirrors()
       }
     }
 	
-    // Mirrors Close
+    // Закрывание зеркал
     if (Mirrors_Close_Stage != 0)
     {
-      if ( Mirrors_Close_Stage == 1)
+      // 01 - одиночная постановка на охрану, 02 - двойная постановка на охрану
+      if ( Mirrors_Close_Stage == 1)// проверяем Stage 01
       {
         // На охране
-        // ждем второго нажатия кнопки
+        // Пауза. ждем второго нажатия кнопки
         if (millis() - my_mirrors >= 10000)
         {
           // время ожидания вышло. Сброс.
@@ -257,13 +261,13 @@ void Check_Mirrors()
         }
         else
         {
-          // Wait
+          // Ожидаем второго нажатия
           Serial.println(F("---Mirrors Close Pause: Wait = ---"));
         }
       }
-      if ( Mirrors_Close_Stage == 2)
+      if ( Mirrors_Close_Stage == 2)// проверяем Stage 02
       {
-        //Двойное нажатие Lock   
+        //Двойное нажатие - складываем зеркала  
         Serial.println(F("---Close mirrors !!!---"));     
         if (digitalRead(Mirrors_Close) != 0)
         {
@@ -283,7 +287,7 @@ void Check_Mirrors()
 
 void Check_RKE_Button()
 {
-  //RKE_Trunk_Button
+  //RKE_Trunk_Button Кнопка открытия багажника
   if (RKE_Trunk_Button_flag == true)
   {
     // Fobik Trunk Key Enabled	
@@ -302,15 +306,16 @@ void Check_RKE_Button()
     RKE_Trunk_Button_flag = false;
   }
   
-  //RKE_Alarm_ON
+  //RKE_Alarm_ON Постановка на охрану
   if (RKE_Alarm_ON_flag == true)
   {
+    // Fobik Key Enabled Alarm ON
+    alarm_on(); // функция при постановке с охраны
     if (BEEP == true)
     { 
       beep();// Beep
     }
-    Serial.println(F("---Fobik Key Enabled = Alarm ON ---"));
-	  
+    Serial.println(F("---Fobik Key Enabled = Alarm ON ---"));	  
     Mirrors_Open_Stage = 0;// зеркала открывать не нужно
     Mirrors_Close_Stage += 1;// зеркала складывать нужно, след шаг
     if (Mirrors_Close_Stage == 1)
@@ -320,13 +325,14 @@ void Check_RKE_Button()
     RKE_Alarm_ON_flag = false;
   }
 
-  //RKE_Alarm_OFF
+  //RKE_Alarm_OFF Снятие с охраны
   if (RKE_Alarm_OFF_flag == true)
   {
-    // Fobik Key Enabled Alarm OFF    
+    // Fobik Key Enabled Alarm OFF 
+    alarm_off(); // функция при снятии с охраны   
     Serial.println(F("---Fobik Key Enabled = Alarm OFF ---"));
-    Mirrors_Close_Stage = 0;
-    Mirrors_Open_Stage = 1;
+    Mirrors_Close_Stage = 0;// зеркала складывать не нужно
+    Mirrors_Open_Stage = 1;// зеркала открывать нужно, след шаг
     if (BEEP == true)
     {
       beep();// Beep
@@ -339,10 +345,13 @@ void Check_RKE_Button()
 
 void Check_Steering_Wheel()
 {
+  // Проверяем рулевые кнопки
   if (Steering_Wheel_1_flag == true)
   {
+    // длительное нажатие кнопки
     if (Temp_Button_SW1 == 0x01)
     {
+      // Центральная правая подрулевая кнопка
       if (Hasards_OFF == true)
       {
         Hasards_OFF = false;
@@ -355,13 +364,13 @@ void Check_Steering_Wheel()
       {
         Hasards_OFF = true;
         Serial.println(F("---Hasards ON---"));
-        // Beep
-        beep();
+        beep();//Beep
       }
     }
 
     if (Temp_Button_SW1 == 0x20)
     { 
+      // Центральная левая подрулевая кнопка
       if (digitalRead(Steering_Wheel_1) != 0)
       { 
         Serial.println(F("---Steering Wheel Key Enabled = OUT ON ---"));
@@ -379,6 +388,7 @@ void Check_Steering_Wheel()
 
     if (Temp_Button_SW1 == 0x08)
     {
+      // Верхняя левая подрулевая кнопка
       if (BEEP == true)
       {
         BEEP = false;
@@ -397,6 +407,7 @@ void Check_Steering_Wheel()
 	
     if (Temp_Button_SW1 == 0x04)
     {
+      // Нижняя правая подрулевая кнопка
       if (Demo_FOG == 0)
       {
         Demo_FOG = 1;
@@ -415,6 +426,7 @@ void Check_Steering_Wheel()
 
     if (Temp_Button_SW1 == 0x10)
     {
+      // Нижняя левая подрулевая кнопка
       if (Settings_HOT_TEMP == true)
       {
         Settings_HOT_TEMP = false;
@@ -438,6 +450,7 @@ void Check_Steering_Wheel()
 
 void Check_FOG()
 { 
+  // Проверка туманок
   if (Settings_FOG == true)
   {
     if ( (Engine_Run == true) && (FrontFogON == false) && (Jeep_Speed <= 9)  && (Jeep_Speed != 0) && (Jeep_Gear == 0x44))
@@ -487,20 +500,80 @@ void Check_FOG()
     }
     else
     {
-      // Front Fog enable. Left and right fogs disable
-      if (digitalRead(EnableFogLeft) == 0)
-      { 
-        digitalWrite(EnableFogLeft, HIGH);
-        delay(5);
-        Serial.println(F("---ALL Fog OFF: Left---")); 
+      kill_all_fog(); 
+    }
+    
+    if (Demo_FOG != 0)
+    {
+      if (Engine_Run == false)
+      {
+        kill_all_fog();
+        Demo_FOG = 0;
       }
-      if (digitalRead(EnableFogRight) == 0)
-      { 
-        digitalWrite(EnableFogRight, HIGH);
-        delay(5);
-        Serial.println(F("---ALL Fog OFF: Right---"));
-      } 
-    }   
+
+      if (FrontFogON == false)
+      {
+        //
+        if ((Demo_FOG > 1) and (Demo_FOG <= 2))
+        {
+          //step 1 Right fog
+          if (digitalRead(EnableFogLeft) == 0)
+          { 
+            digitalWrite(EnableFogLeft, HIGH);
+            delay(5);
+            Serial.println(F("---Demo Left Fog OFF---")); 
+          }
+          if (digitalRead(EnableFogRight) != 0)
+          { 
+            digitalWrite(EnableFogRight, LOW);
+            delay(5);
+            Serial.println(F("---Demo Right Fog ON---"));
+          } 
+        }
+      
+        if ((Demo_FOG > 3) and (Demo_FOG <= 4))
+        {
+          //step 2 Left Fog
+          if (digitalRead(EnableFogRight) == 0)
+          { 
+            digitalWrite(EnableFogRight, HIGH);
+            delay(5);
+            Serial.println(F("---Demo Right Fog OFF---"));  
+          }
+          if (digitalRead(EnableFogLeft) != 0)
+          { 
+            digitalWrite(EnableFogLeft, LOW);
+            delay(5);
+            Serial.println(F("---Demo Left Fog ON---"));
+          }
+        }
+	  
+        Demo_FOG += 1;
+	  
+        if (Demo_FOG > 5)
+        {
+          //next step Demo FOG
+          Demo_FOG = 1;
+          if (digitalRead(EnableFogLeft) == 0)
+          { 
+            digitalWrite(EnableFogLeft, HIGH);
+            delay(5);
+            Serial.println(F("---Demo all Fog OFF: Left---")); 
+          }
+          if (digitalRead(EnableFogRight) == 0)
+          { 
+            digitalWrite(EnableFogRight, HIGH);
+            delay(5);
+            Serial.println(F("---Demo all Fog OFF: Right---"));
+          } 
+        }
+      }
+      else
+      {
+        kill_all_fog();
+        Demo_FOG = 0;  
+      }
+    }	
   }
 }
 
@@ -843,6 +916,10 @@ void onCANReceive(int packetSize)
     case 0x41B:
       Settings_HEAT_SEAT = true;// HSM installed
       break;
+
+    case 0x43F:
+      Settings_VES = false;// VES installed
+      break;
     
     default:
       if (CAN_LOGS == true)
@@ -888,7 +965,7 @@ void reset_counter_az()
 {
   // сброс счетчика количества АЗ
   Serial.println(F("---Reset counter AZ----"));
-  canSend(0x11D, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00);// Flash High Beam 
+  canSend(0x11D, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00);// Flash High Beam
   Serial.println(F("---Stop Reset counter AZ----"));
 }
 
@@ -897,90 +974,6 @@ void beep()
   // Beep
   // to do: check parameter Jeep_Hasards
   canSend(0x11D, 0x80, Jeep_Wiper, 0x00, 0x00, 0x00, 0x00);
-}
-
-void demo_fog()
-{
-  if (Demo_FOG != 0)
-  {
-    if (Engine_Run == false)
-    {
-      kill_all_fog();
-      Demo_FOG = 0;
-    }
-    //Demo_FOG
-    if (FrontFogON == false)
-    {
-      //
-      if ((Demo_FOG > 1) and (Demo_FOG <= 5))
-      {
-        //step 1 Right fog
-        if (digitalRead(EnableFogLeft) == 0)
-        { 
-          digitalWrite(EnableFogLeft, HIGH);
-          delay(5);
-          Serial.println(F("---Demo Left Fog OFF---")); 
-        }
-        if (digitalRead(EnableFogRight) != 0)
-        { 
-          digitalWrite(EnableFogRight, LOW);
-          delay(5);
-          Serial.println(F("---Demo Right Fog ON---"));
-        } 
-      }
-      
-      if ((Demo_FOG > 6) and (Demo_FOG <= 10))
-      {
-        //step 2 Left Fog
-        if (digitalRead(EnableFogRight) == 0)
-        { 
-          digitalWrite(EnableFogRight, HIGH);
-          delay(5);
-          Serial.println(F("---Demo Right Fog OFF---"));  
-        }
-        if (digitalRead(EnableFogLeft) != 0)
-        { 
-          digitalWrite(EnableFogLeft, LOW);
-          delay(5);
-          Serial.println(F("---Demo Left Fog ON---"));
-        }
-      }
-	  
-      Demo_FOG += 1;
-	  
-      if (Demo_FOG > 11)
-      {
-        //next step Demo FOG
-        Demo_FOG = 1;
-        if (digitalRead(EnableFogLeft) == 0)
-        { 
-          digitalWrite(EnableFogLeft, HIGH);
-          delay(5);
-          Serial.println(F("---Demo all Fog OFF: Left---")); 
-        }
-        if (digitalRead(EnableFogRight) == 0)
-        { 
-          digitalWrite(EnableFogRight, HIGH);
-          delay(5);
-          Serial.println(F("---Demo all Fog OFF: Right---"));
-        } 
-      }
-      if (Engine_Run == false)
-      {
-        kill_all_fog();
-        Demo_FOG = 0;
-      }
-    }
-    else
-    {
-      kill_all_fog();
-      Demo_FOG = 0;  
-    }
-  }
-  else
-  {
-    kill_all_fog();
-  }
 }
 
 void kill_all_fog()
@@ -998,6 +991,16 @@ void kill_all_fog()
     delay(5);
     Serial.println(F("---Kill All Fog: Right---"));
   } 
+}
+
+void alarm_on()
+{
+  // функия при постановке на охрану
+}
+
+void alarm_off()
+{
+  // фугкция при снятии с охраны
 }
 
 void checkSerial()
