@@ -4,6 +4,7 @@
  * * Version 2.2.1
  * Features:
  *  - Emulating VES presense to enable VIDEO AUX IN in MyGIG head unit
+ *  - Auto-detection MyGIG and VES
  *  - Enable intelligent cornering light
  *  - Enable digital output when pressing the steering wheel button
  *  - Enable digital output when pressing fobik Trunk button
@@ -12,7 +13,7 @@
  *  - Reset counter factory Remote Start (manual)
  *  - Activation hazards warning lights when reversing
  *  - Beeps with alarm on/alarm off
- *  - Auto auto-detection HSM (HeatSeatModule)
+ *  - Auto-detection HSM (HeatSeatModule)
  *  - Enable heat seats with factory remote start
  *  - Added Demo Fog
  *  
@@ -42,10 +43,10 @@
 /****************************
  * Start Global settings special functions
  ****************************/
- bool Settings_VES = true;            // Разрешена эмуляция VES. Автоопределение VES на кан.
- bool Settings_FOG = true;            // Разрешен подсвет поворота 
- bool Settings_HOT_TEMP = false;      // Учитывать уличную температуру. Default - false
- bool Settings_HEAT_SEAT = false;     // Автоопределение HSM, включение обогрева при АЗ 
+ bool Settings_VES = true;            // Эмуляция VES. Автоопределение VES на кан-шине.
+ bool Settings_FOG = true;            // Разрешен подсвет поворота. 
+ bool Settings_HOT_TEMP = false;      // Учитывать уличную температуру. Default - false.
+ bool Settings_HEAT_SEAT = false;     // Автоопределение HSM, включение обогрева при АЗ. 
  /***************************
  * Stop Global special settings
  ****************************/
@@ -60,7 +61,9 @@ bool LeftFog = false;               // Включать левую туманк�
 bool Steering_Wheel_1_flag = false; // флаг длительного нажатия true-on, false-off
 bool RKE_Trunk_Button_flag = false; // флаг нажатия кнопки "багажник" на фобике
 bool RKE_Alarm_ON_flag = false;     // флаг постановки на охрану (для доводчика)
+bool Alarm_ON = false;              // постановка на охрану 
 bool RKE_Alarm_OFF_flag = false;    // флаг снятия с охраны (для доводчика)
+bool Alarm_OFF = false;             // снятие с охраны
 bool RKE_AZ_flag = false;           // флаг нажатия кнопки Remote Start
 bool Remote_start = false;          // текущий статус Remote start true-on, false-off
 bool Alarm_Status = false;          // текущий статус Alarm status true-on, false-off
@@ -146,16 +149,14 @@ void loop()
   Check_Hasards();        // Проверяем аварийку
   Check_HeatSeat();       // Проверяем обогрева сидений
   Check_Mirrors();        // Проверяем боковые зеркала
-  delay(30);  
+  Check_Alarm();          // Проверяем постановку, снятие с охраны  
 }
 
 void Enable_VES()
 {
   if (Settings_VES == true)
   {
-    if ( keyState == 0x00)
-      delay(1);
-    else
+    if ( keyState != 0x00)
     {
       // VES Lockpic
       canSend(0x322, 0x01, 0x70, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00); delay(25); //Ves configuration
@@ -310,7 +311,8 @@ void Check_RKE_Button()
   if (RKE_Alarm_ON_flag == true)
   {
     // Fobik Key Enabled Alarm ON
-    alarm_on(); // функция при постановке с охраны
+    Alarm_ON = true;
+    Alarm_OFF = false;
     if (BEEP == true)
     { 
       beep();// Beep
@@ -329,7 +331,8 @@ void Check_RKE_Button()
   if (RKE_Alarm_OFF_flag == true)
   {
     // Fobik Key Enabled Alarm OFF 
-    alarm_off(); // функция при снятии с охраны   
+    Alarm_ON = false;
+    Alarm_OFF = true;  
     Serial.println(F("---Fobik Key Enabled = Alarm OFF ---"));
     Mirrors_Close_Stage = 0;// зеркала складывать не нужно
     Mirrors_Open_Stage = 1;// зеркала открывать нужно, след шаг
@@ -498,10 +501,6 @@ void Check_FOG()
         } 
       }   
     }
-    else
-    {
-      kill_all_fog(); 
-    }
     
     if (Demo_FOG != 0)
     {
@@ -573,6 +572,10 @@ void Check_FOG()
         kill_all_fog();
         Demo_FOG = 0;  
       }
+    }
+    else
+    {
+      kill_all_fog(); 
     }	
   }
 }
@@ -895,7 +898,6 @@ void onCANReceive(int packetSize)
         { 
           Serial.println(F("---Alarm ON: Disable Units Steering Wheel ---"));
           digitalWrite(Steering_Wheel_1, HIGH);
-          delay(5);
         }
       }
 	  
@@ -914,11 +916,35 @@ void onCANReceive(int packetSize)
       break;
 
     case 0x41B:
-      Settings_HEAT_SEAT = true;// HSM installed
+      Settings_HEAT_SEAT == true;// HSM installed
+      if (CAN_LOGS == true)
+      {
+        Serial.print("0x");
+        Serial.print(packetID, HEX);
+        Serial.print(" Ident HSM: ");
+        Serial.print(packetSize);
+        for (uint8_t x = 0; x < packetSize; x++)
+        {
+          Serial.print(" 0x"); Serial.print(parameters[x], HEX);
+        }
+        Serial.println();
+      }
       break;
 
     case 0x43F:
-      Settings_VES = false;// VES installed
+      //Settings_VES == false;// VES installed
+      if (CAN_LOGS == true)
+      {
+        Serial.print("0x");
+        Serial.print(packetID, HEX);
+        Serial.print(" Ident VES: ");
+        Serial.print(packetSize);
+        for (uint8_t x = 0; x < packetSize; x++)
+        {
+          Serial.print(" 0x"); Serial.print(parameters[x], HEX);
+        }
+        Serial.println();
+      }
       break;
     
     default:
@@ -973,6 +999,7 @@ void beep()
 {
   // Beep
   // to do: check parameter Jeep_Hasards
+  //canSend(0x11D, Jeep_Hasards, Jeep_Wiper, 0x00, 0x00, 0x00, 0x00);
   canSend(0x11D, 0x80, Jeep_Wiper, 0x00, 0x00, 0x00, 0x00);
 }
 
@@ -993,14 +1020,21 @@ void kill_all_fog()
   } 
 }
 
-void alarm_on()
+void Check_Alarm()
 {
-  // функия при постановке на охрану
-}
+  // постанова на охрану
+  if ( Alarm_ON == true )
+  {
+	  // Постановка на охрану
+	  Alarm_ON = false;
+  }
 
-void alarm_off()
-{
-  // фугкция при снятии с охраны
+  // снятие с охраны
+  if ( Alarm_OFF == true )
+  {
+	  // Снятие с охраны
+	  Alarm_OFF = false;
+  }
 }
 
 void checkSerial()
