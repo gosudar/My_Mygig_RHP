@@ -1,7 +1,7 @@
 /******************************************************************************************
  * Project    : MY Jeep Compass Utility/MyGIG RHP
  * Hack for my Jeep Compass MyGIG RHP and Utility
- * * Version 2.2.1
+ * * Version 2.4.2
  * Features:
  *  - Emulating VES presense to enable VIDEO AUX IN in MyGIG head unit
  *  - Auto-detection MyGIG and VES
@@ -14,8 +14,10 @@
  *  - Activation hazards warning lights when reversing
  *  - Beeps with alarm on/alarm off
  *  - Auto-detection HSM (HeatSeatModule)
+ *  - Auto-detection Rain Sensor (LRSM)
  *  - Enable heat seats with factory remote start
  *  - Added Demo Fog
+ *  - Auto rear wiper (rain sensor)
  *  
  *  Settings:
  *  - Long press central left button - enable digital output for ip-tv
@@ -39,7 +41,12 @@
  * https://github.com/sandeepmistry/arduino-CAN
  * 
  ******************************************************************************************/
-
+ //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+ //! Управление релейной сборкой
+ //! если по минусу, то раскомментировать следующие две строки
+ #define HIGH 0x00
+ #define LOW  0x01
+ //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 /****************************
  * Start Global settings special functions
  ****************************/
@@ -47,6 +54,7 @@
  bool Settings_FOG = true;            // Разрешен подсвет поворота. 
  bool Settings_HOT_TEMP = false;      // Учитывать уличную температуру. Default - false.
  bool Settings_HEAT_SEAT = false;     // Автоопределение HSM, включение обогрева при АЗ. 
+ bool Settings_Rain_Sensor = false;   // Автоопределение датчика дождя
  /***************************
  * Stop Global special settings
  ****************************/
@@ -80,24 +88,25 @@ int Mirrors_Close = 4;              // Инициализация перемен
 int RKE_Trunk_Button = 3;           // Инициализация переменной RKE_Trunk_Button к выводу 3
 int Temp_Button_SW1 = 0;            // счетчик удержания левой центральной подрулевой кнопки
 int reset_az_stage = 0;             // счетчик кол-ва АЗ
-//int Jeep_RPM = 0;                   // обороты двигателя
-
+int Jeep_RPM = 0;                   // обороты двигателя
+//int Jeep_RKE_Code = 0;              // RKE key code
 byte Jeep_Wiper = 0x01;             // текущий режим дворников
 byte Jeep_Hasards = 0x02;           // текущий статус аварийки
 byte Jeep_Speed = 0;                // скорость авто
 byte Jeep_Gear = 0;                 // селектор коробки
 byte Jeep_Temp_Outdoor = 0x51;      // температура за бортом
-//float Jeep_Batt;                  // напряжение
+byte Jeep_Rain_Sensor = 0;          // датчик дождя
 byte Jeep_HeatSeat_Status_1 = 0;    // статус обогрева левого сидения
 byte Jeep_HeatSeat_Status_2 = 0;    // статус обогрева правого сидения
 byte Jeep_Defrost_Rear = 0;         // статус обогрева стекла
-byte Demo_FOG = 0;                  // статус демо режима противотуманок
-byte Mirrors_Open_Stage = 0;        // 01 - снято с охраны, 02 - двигатель работает
-byte Mirrors_Close_Stage = 0;       // 01 - однократное нажатие, 02 - двойное нажатие
-
+byte Jeep_Demo_FOG = 0;             // статус демо режима противотуманок
+byte Jeep_Mirrors_Open = 0;         // расскладывание зеркал
+byte Jeep_Mirrors_Close = 0;        // складывание зеркал
+float Jeep_Batt;                    // напряжение
 uint32_t my_reset_az;               // временная задержка для сброса счетчика АЗ
 uint32_t my_hasard_on;              // временная задержка для аварийки при ЗХ
 uint32_t my_mirrors;                // временная задержка для складывания зеркал
+uint32_t my_wiper_mirrors;          // временная задержка для заднего дворника
 
 void setup()
 { 
@@ -111,17 +120,17 @@ void setup()
   //CAN.setClockFrequency(16E6);
 
   pinMode(EnableFogLeft, OUTPUT);         // Установим вывод как выход
-  digitalWrite(EnableFogLeft, HIGH);      // Устанавливаем на нем 1 (выкл)
+  digitalWrite(EnableFogLeft, LOW);       // Устанавливаем на нем 1 (выкл)
   pinMode(EnableFogRight, OUTPUT);        // Установим вывод как выход
-  digitalWrite(EnableFogRight, HIGH);     // Устанавливаем на нем 1 (выкл)
+  digitalWrite(EnableFogRight, LOW);      // Устанавливаем на нем 1 (выкл)
   pinMode(Steering_Wheel_1, OUTPUT);      // Установим вывод как выход
-  digitalWrite(Steering_Wheel_1, HIGH);   // Устанавливаем на нем 1 (выкл)
+  digitalWrite(Steering_Wheel_1, LOW);    // Устанавливаем на нем 1 (выкл)
   pinMode(RKE_Trunk_Button, OUTPUT);      // Установим вывод как выход
-  digitalWrite(RKE_Trunk_Button, HIGH);   // Устанавливаем на нем 1 (выкл)
+  digitalWrite(RKE_Trunk_Button, LOW);    // Устанавливаем на нем 1 (выкл)
   pinMode(Mirrors_Open, OUTPUT);          // Установим вывод как выход
-  digitalWrite(Mirrors_Open, HIGH);       // Устанавливаем на нем 1 (выкл)
+  digitalWrite(Mirrors_Open, LOW);        // Устанавливаем на нем 1 (выкл)
   pinMode(Mirrors_Close, OUTPUT);         // Установим вывод как выход
-  digitalWrite(Mirrors_Close, HIGH);      // Устанавливаем на нем 1 (выкл)
+  digitalWrite(Mirrors_Close, LOW);       // Устанавливаем на нем 1 (выкл)
  
   if (!CAN.begin(83E3))      //start the CAN bus at 83.333 kbps 
   {
@@ -130,7 +139,7 @@ void setup()
   }
 
   CAN.onReceive(onCANReceive);
-  Serial.println(".....  MY Jeep Compass utility start.");
+  Serial.println(".....  MY Jeep Compass utility start. version 2.4.2");
 }
 
 void loop()
@@ -149,7 +158,8 @@ void loop()
   Check_Hasards();        // Проверяем аварийку
   Check_HeatSeat();       // Проверяем обогрева сидений
   Check_Mirrors();        // Проверяем боковые зеркала
-  Check_Alarm();          // Проверяем постановку, снятие с охраны  
+  Check_Alarm();          // Проверяем постановку, снятие с охраны 
+  Check_Rain();           // Проверяем датчик дождя  
 }
 
 void Enable_VES()
@@ -159,8 +169,8 @@ void Enable_VES()
     if ( keyState != 0x00)
     {
       // VES Lockpic
-      canSend(0x322, 0x01, 0x70, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00); delay(25); //Ves configuration
-      canSend(0x3B4, 0x00, 0x04, 0x00, 0x07, 0x00, 0x00, 0x00, 0x07); delay(25); //Ves AUX VIDEO
+      canSend(0x322, 0x01, 0x70, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00); //Ves configuration
+      canSend(0x3B4, 0x00, 0x04, 0x00, 0x07, 0x00, 0x00, 0x00, 0x07); //Ves AUX VIDEO
     }
   }
 }
@@ -212,51 +222,78 @@ void Check_Hasards()
 void Check_Mirrors()
 {
   // Проверка боковых зеркал
-  if ((Settings_HOT_TEMP == true) and (Jeep_Temp_Outdoor > 0x50)) // по температурному датчику
+  if ((Settings_HOT_TEMP == true) and (Jeep_Temp_Outdoor > 0x50)) // по температуре
   {
     // Открывание зеркал
-    if ( Mirrors_Open_Stage != 0)
-    { // 01 - снято с охраны, 02 - снято с охраны и двигатель работает
-      if ( Mirrors_Open_Stage == 1)// проверяем Stage 01
+    if (Jeep_Mirrors_Open != 0)
+    { 
+      // на всяк случай проверяем двойное нажатие + еще одно
+      if (Jeep_Mirrors_Open == 3)
+      {
+        Jeep_Mirrors_Open = 2;
+      }
+      // и еще на всяк случай
+      if (Jeep_Mirrors_Open == 6)
+      {
+        Jeep_Mirrors_Open = 5;
+      }
+      // и напоследок, еще на всяк случай
+      if (Jeep_Mirrors_Open == 8)
+      {
+        Jeep_Mirrors_Open = 7;
+      }
+
+      if (Jeep_Mirrors_Open == 1)// снято с охраны
       {
         // Оk. Снято с охраны, проверяем двигатель
-        if (keyState == 0x81)
+        if (keyState == 0x81 and Jeep_RPM > 500)
         {
-          // двигатель работает, переходим к расскладыванию
-          Serial.println(F("---Unlock, engine start ! ---"));
-          Mirrors_Open_Stage = 2;
+          //снято с охраны и двигатель работает, переходим к расскладыванию
+          Serial.println(F("---Unlock and engine start ! ---"));
+          Jeep_Mirrors_Open = 5;
         }
       }
-      if ( Mirrors_Open_Stage == 2)// проверяем Stage 02
+      if (Jeep_Mirrors_Open == 2)// двойное нажатие открыть
       {
-        //Охрана выкл, Двигатель работает, раскладываем зеркала   
-        Serial.println(F("---Open mirrors ! ---"));     
-        if (digitalRead(Mirrors_Open) != 0)
-        {
-          digitalWrite(Mirrors_Open, LOW);
-          delay(500);
+        //двойное нажатие, переходим к расскладыванию
+        Serial.println(F("---Unlock 2x. Open mirrors ! ---"));
+        Jeep_Mirrors_Open = 5;
+      }
+      if (Jeep_Mirrors_Open == 5)// 05 - расскладывание
+      {
+        //Двойное нажатие или охрана выкл, двигатель работает, раскладываем зеркала 
+        if (Jeep_Batt < 11.0)
+        {  
+          Serial.println(F("---Open mirrors ! ---"));     
           digitalWrite(Mirrors_Open, HIGH);
         }
         else
         {
-          Serial.println(F("---Mirrors Open = Ops!---"));
+          Serial.println(F("--- Отмена расскладывания. Напряжение аккумулятора менее 12В ! ---"));
         }
-        Mirrors_Open_Stage = 0;
+        my_mirrors = millis();
+        Jeep_Mirrors_Open = 7;
       }
     }
-	
     // Закрывание зеркал
-    if (Mirrors_Close_Stage != 0)
+    // в движении не складыванием!
+    if ((keyState == 0x81 and Jeep_RPM > 500) and (Jeep_Mirrors_Close != 0))
+    {
+      // двигатель работает, складывание запрещено
+      Serial.println(F("---В движении складывать зеркала нельзя ! ---")); 
+      Jeep_Mirrors_Close = 0;
+    }
+    if (Jeep_Mirrors_Close != 0)
     {
       // 01 - одиночная постановка на охрану, 02 - двойная постановка на охрану
-      if ( Mirrors_Close_Stage == 1)// проверяем Stage 01
+      if ( Jeep_Mirrors_Close == 1)// проверяем Stage 01
       {
         // На охране
         // Пауза. ждем второго нажатия кнопки
         if (millis() - my_mirrors >= 10000)
         {
           // время ожидания вышло. Сброс.
-          Mirrors_Close_Stage = 0; 
+          Jeep_Mirrors_Close = 0; 
           my_mirrors = millis();
           Serial.println(F("---Mirrors Close Time Reset = ---"));
         }
@@ -266,22 +303,58 @@ void Check_Mirrors()
           Serial.println(F("---Mirrors Close Pause: Wait = ---"));
         }
       }
-      if ( Mirrors_Close_Stage == 2)// проверяем Stage 02
+      if ( Jeep_Mirrors_Close == 2)// проверяем Stage 02
       {
-        //Двойное нажатие - складываем зеркала  
-        Serial.println(F("---Close mirrors !!!---"));     
-        if (digitalRead(Mirrors_Close) != 0)
-        {
-          digitalWrite(Mirrors_Close, LOW);
-          delay(500);
+        //Двойное нажатие - складываем зеркала 
+        if (Jeep_Batt < 11.0)
+        { 
+          Serial.println(F("---Close mirrors !!!---"));     
           digitalWrite(Mirrors_Close, HIGH);
         }
         else
         {
-          Serial.println(F("---Mirrors Close = Ops!---"));
+          Serial.println(F("--- Отмена складывания. Напряжение аккумулятора менее 12В ! ---"));
         }
-        Mirrors_Close_Stage = 0;
+        my_mirrors = millis();
+        Jeep_Mirrors_Close = 7;
       }
+    }
+    // завершение расскладывания
+    if ( Jeep_Mirrors_Open == 7)// 07 - временная пауза. завершение процесса
+    {
+      //врееменная пауза. завершение процесса       
+      if (millis() - my_mirrors >= 1000)
+      {
+        // время ожидания вышло.
+        digitalWrite(Mirrors_Open, LOW);
+        Jeep_Mirrors_Open = 0;
+       }
+    }
+    // завершение складывания
+    if ( Jeep_Mirrors_Close == 7)// 07 - временная пауза. завершение процесса
+    {
+      //временная пауза. завершение процесса       
+      if (millis() - my_mirrors >= 1000)
+      {
+        // время ожидания вышло.
+        digitalWrite(Mirrors_Close, LOW);
+        Jeep_Mirrors_Close = 0;
+      }
+    }    
+  }
+  else
+  {
+    Jeep_Mirrors_Close = 0;
+    Jeep_Mirrors_Open = 0;
+    // на всякий случай, проверяем что расскладывание выкл
+    if (digitalRead(Mirrors_Open) == HIGH)
+    {
+      digitalWrite(Mirrors_Open, LOW);
+    }
+    // на всякий случай, проверяем что складывание выкл
+    if (digitalRead(Mirrors_Close) == HIGH)
+    {
+      digitalWrite(Mirrors_Close, LOW);
     }
   }
 }
@@ -292,17 +365,15 @@ void Check_RKE_Button()
   if (RKE_Trunk_Button_flag == true)
   {
     // Fobik Trunk Key Enabled	
-    if (digitalRead(RKE_Trunk_Button) == 0)
+    if (digitalRead(RKE_Trunk_Button) == LOW)
     { 
       Serial.println(F("---Fobik Key Enabled = Trunk OUT ON ---"));
       digitalWrite(RKE_Trunk_Button, HIGH);
-      delay(5);
     }
     else
     {
       Serial.println(F("---Fobik Key Enabled = Trunk OUT OFF ---"));
       digitalWrite(RKE_Trunk_Button, LOW);
-      delay(5);
     }
     RKE_Trunk_Button_flag = false;
   }
@@ -318,11 +389,11 @@ void Check_RKE_Button()
       beep();// Beep
     }
     Serial.println(F("---Fobik Key Enabled = Alarm ON ---"));	  
-    Mirrors_Open_Stage = 0;// зеркала открывать не нужно
-    Mirrors_Close_Stage += 1;// зеркала складывать нужно, след шаг
-    if (Mirrors_Close_Stage == 1)
+    Jeep_Mirrors_Open = 0;// зеркала открывать не нужно
+    Jeep_Mirrors_Close += 1;// зеркала складывать нужно, след шаг
+    if (Jeep_Mirrors_Close == 1)
     { 
-      my_mirrors = millis();// временная задержка 10сек 
+      my_mirrors = millis();// временная задержка
     }	  
     RKE_Alarm_ON_flag = false;
   }
@@ -334,8 +405,12 @@ void Check_RKE_Button()
     Alarm_ON = false;
     Alarm_OFF = true;  
     Serial.println(F("---Fobik Key Enabled = Alarm OFF ---"));
-    Mirrors_Close_Stage = 0;// зеркала складывать не нужно
-    Mirrors_Open_Stage = 1;// зеркала открывать нужно, след шаг
+    Jeep_Mirrors_Close = 0;// зеркала складывать не нужно
+    Jeep_Mirrors_Open += 1;// зеркала открывать нужно, след шаг
+    //if (Jeep_Mirrors_Open == 1)
+    //{ 
+      //my_mirrors = millis();// временная задержка 
+    //}  
     if (BEEP == true)
     {
       beep();// Beep
@@ -374,17 +449,15 @@ void Check_Steering_Wheel()
     if (Temp_Button_SW1 == 0x20)
     { 
       // Центральная левая подрулевая кнопка
-      if (digitalRead(Steering_Wheel_1) != 0)
+      if (digitalRead(Steering_Wheel_1) != HIGH)
       { 
         Serial.println(F("---Steering Wheel Key Enabled = OUT ON ---"));
-        digitalWrite(Steering_Wheel_1, LOW);
-        delay(5);
+        digitalWrite(Steering_Wheel_1, HIGH);
       }
       else
       {
         Serial.println(F("---Steering Wheel Key Enabled = OUT OFF ---"));
-        digitalWrite(Steering_Wheel_1, HIGH);
-        delay(5);
+        digitalWrite(Steering_Wheel_1, LOW);
       }
       beep();// Beep
     }
@@ -411,15 +484,15 @@ void Check_Steering_Wheel()
     if (Temp_Button_SW1 == 0x04)
     {
       // Нижняя правая подрулевая кнопка
-      if (Demo_FOG == 0)
+      if (Jeep_Demo_FOG == 0)
       {
-        Demo_FOG = 1;
+        Jeep_Demo_FOG = 1;
         Serial.println(F("---Demo Fog Enabled ---"));
         beep();// Beep
       }
       else
       {
-        Demo_FOG = 0;
+        Jeep_Demo_FOG = 0;
         Serial.println(F("---Demo Fog Disabled ---"));
         beep();// Beep
         delay(100);
@@ -452,131 +525,112 @@ void Check_Steering_Wheel()
 }
 
 void Check_FOG()
-{ 
-  // Проверка туманок
+{
   if (Settings_FOG == true)
   {
-    if ( (Engine_Run == true) && (FrontFogON == false) && (Jeep_Speed <= 9)  && (Jeep_Speed != 0) && (Jeep_Gear == 0x44))
+    // включены штатно туманки - выключаем демо и подсветку поворота
+    if (FrontFogON == true)
     {
-      // Front Fog disable
-      if ( RightFog == true )
-      {
-        //Fog right enable
-        if (digitalRead(EnableFogRight) != 0)
-        { 
-          digitalWrite(EnableFogRight, LOW);
-          delay(5);
-          Serial.println(F("---Right Fog ON---"));
-        } 
-      }
-      else
-      {
-        //Fog right disable
-        if (digitalRead(EnableFogRight) == 0)
-        { 
-          digitalWrite(EnableFogRight, HIGH);
-          delay(5);
-          Serial.println(F("---Right Fog OFF---"));
-        }  
-      }
-
-      if ( LeftFog == true )
-      {
-        //Fog left enable
-        if (digitalRead(EnableFogLeft) != 0)
-        { 
-          digitalWrite(EnableFogLeft, LOW);
-          delay(5);
-          Serial.println(F("---Left Fog ON---"));
-        }   
-      }
-      else
-      {
-        //Fog left disable
-        if (digitalRead(EnableFogLeft) == 0)
-        { 
-          digitalWrite(EnableFogLeft, HIGH);
-          delay(5);
-          Serial.println(F("---Left Fog OFF---")); 
-        } 
-      }   
+      kill_all_fog();
+      Jeep_Demo_FOG = 0;
     }
-    
-    if (Demo_FOG != 0)
-    {
-      if (Engine_Run == false)
+    else
+    { 
+      // подсветка поворота
+      if ((Jeep_Demo_FOG == 0) && (Engine_Run == true) && (FrontFogON == false) && (Jeep_Speed <= 9)  && (Jeep_Speed != 0) && (Jeep_Gear == 0x44))
       {
-        kill_all_fog();
-        Demo_FOG = 0;
-      }
-
-      if (FrontFogON == false)
-      {
-        //
-        if ((Demo_FOG > 1) and (Demo_FOG <= 2))
+        if ( RightFog == true )
         {
-          //step 1 Right fog
-          if (digitalRead(EnableFogLeft) == 0)
+          //Fog right enable
+          if (digitalRead(EnableFogRight) != HIGH)
           { 
-            digitalWrite(EnableFogLeft, HIGH);
-            delay(5);
-            Serial.println(F("---Demo Left Fog OFF---")); 
-          }
-          if (digitalRead(EnableFogRight) != 0)
+            digitalWrite(EnableFogRight, HIGH);
+            Serial.println(F("---Right Fog ON---"));
+          } 
+        }
+        else
+        {
+          //Fog right disable
+          if (digitalRead(EnableFogRight) == HIGH)
           { 
             digitalWrite(EnableFogRight, LOW);
-            delay(5);
+            Serial.println(F("---Right Fog OFF---"));
+          }  
+        }
+
+        if ( LeftFog == true )
+        {
+          //Fog left enable
+          if (digitalRead(EnableFogLeft) != HIGH)
+          { 
+            digitalWrite(EnableFogLeft, HIGH);
+            Serial.println(F("---Left Fog ON---"));
+          }   
+        }
+        else
+        {
+          //Fog left disable
+          if (digitalRead(EnableFogLeft) == HIGH)
+          { 
+            digitalWrite(EnableFogLeft, LOW);
+            Serial.println(F("---Left Fog OFF---")); 
+          }
+        } 
+      }
+      else
+      {
+        kill_all_fog(); 
+      } 
+      // Демо
+      if ((Jeep_Demo_FOG != 0) && (Engine_Run == true) && (FrontFogON == false))
+      {
+        if (Jeep_Demo_FOG == 1)
+        {
+          //step 1 Right fog
+          if (digitalRead(EnableFogLeft) == HIGH)
+          { 
+            digitalWrite(EnableFogLeft, LOW);
+            Serial.println(F("---Demo Left Fog OFF---")); 
+          }
+          if (digitalRead(EnableFogRight) != HIGH)
+          { 
+            digitalWrite(EnableFogRight, HIGH);
             Serial.println(F("---Demo Right Fog ON---"));
           } 
         }
-      
-        if ((Demo_FOG > 3) and (Demo_FOG <= 4))
+        if (Jeep_Demo_FOG == 2)
         {
           //step 2 Left Fog
-          if (digitalRead(EnableFogRight) == 0)
+          if (digitalRead(EnableFogRight) == HIGH)
           { 
-            digitalWrite(EnableFogRight, HIGH);
-            delay(5);
+            digitalWrite(EnableFogRight, LOW);
             Serial.println(F("---Demo Right Fog OFF---"));  
           }
-          if (digitalRead(EnableFogLeft) != 0)
+          if (digitalRead(EnableFogLeft) != HIGH)
           { 
-            digitalWrite(EnableFogLeft, LOW);
-            delay(5);
+            digitalWrite(EnableFogLeft, HIGH);
             Serial.println(F("---Demo Left Fog ON---"));
           }
         }
-	  
-        Demo_FOG += 1;
-	  
-        if (Demo_FOG > 5)
+        Jeep_Demo_FOG += 1;
+        if (Jeep_Demo_FOG > 2)
         {
           //next step Demo FOG
-          Demo_FOG = 1;
-          if (digitalRead(EnableFogLeft) == 0)
-          { 
-            digitalWrite(EnableFogLeft, HIGH);
-            delay(5);
-            Serial.println(F("---Demo all Fog OFF: Left---")); 
-          }
-          if (digitalRead(EnableFogRight) == 0)
-          { 
-            digitalWrite(EnableFogRight, HIGH);
-            delay(5);
-            Serial.println(F("---Demo all Fog OFF: Right---"));
-          } 
+          Jeep_Demo_FOG = 1;
         }
       }
       else
       {
+        Jeep_Demo_FOG = 0;
+        kill_all_fog(); 
+      }
+      //Двигатель остановлен - отключаем демо и туманки
+      if (Engine_Run == false)
+      {
         kill_all_fog();
-        Demo_FOG = 0;  
+        Jeep_Demo_FOG = 0;
       }
     }
-    else
-    {
-      kill_all_fog(); 
-    }	
   }
 }
 
@@ -594,12 +648,12 @@ void Check_HeatSeat()
         if (Jeep_HeatSeat_Status_1 == 0x00)
         {
           // Подогрев левого сидения выключен
-          canSend(0x02E, 0x03, 0x10, 0x00, 0x00, 0x00, 0x00); delay(25); // включаем левый попогрей
+          canSend(0x02E, 0x03, 0x10, 0x00, 0x00, 0x00, 0x00); // включаем левый попогрей
         }
         if (Jeep_HeatSeat_Status_2 == 0x00)
         {
           // Подогрев правого сидения выключен
-          canSend(0x02E, 0x03, 0x80, 0x00, 0x00, 0x00, 0x00); delay(25); // включаем правый попогрей
+          canSend(0x02E, 0x03, 0x80, 0x00, 0x00, 0x00, 0x00); // включаем правый попогрей
         }
         Serial.println(F("---Heat Seat send to enable---"));
       }
@@ -666,14 +720,39 @@ void onCANReceive(int packetSize)
 	  
     case 0x002:
       Jeep_Speed = parameters[2];
+      Jeep_RPM = ( parameters[0] << 8 ) + parameters[1];
+      if (CAN_LOGS == true)
+      {
+        Serial.print("0x");
+        Serial.print(packetID, HEX);
+        Serial.print(" Speed, RPM and other: ");
+        Serial.print(packetSize);
+        for (uint8_t x = 0; x < packetSize; x++)
+        {
+          Serial.print(" 0x"); Serial.print(parameters[x], HEX);
+        }
+        Serial.println();
+      }      
       break;
 
     case 0x003:
       Jeep_Gear = parameters[4];
+      if (CAN_LOGS == true)
+      {
+        Serial.print("0x");
+        Serial.print(packetID, HEX);
+        Serial.print(" Gear pasition and other: ");
+        Serial.print(packetSize);
+        for (uint8_t x = 0; x < packetSize; x++)
+        {
+          Serial.print(" 0x"); Serial.print(parameters[x], HEX);
+        }
+        Serial.println();
+      }
       break;
 	
     case 0x015:
-      //Jeep_Batt = parameters[1] / 10.0;
+      Jeep_Batt = parameters[1] / 10.0;
       Jeep_Temp_Outdoor = parameters[0];
       
       if ( parameters[4] == 0x12 || parameters[4] == 0x13 ) //Left
@@ -714,6 +793,7 @@ void onCANReceive(int packetSize)
       if ( parameters[0] == 0x48 || parameters[0] == 0x58 || parameters[0] == 0x78 || parameters[0] == 0xD8 || parameters[0] == 0xD9 || parameters[0] == 0xF8 || parameters[0] == 0xDA ) //Check front fog on
       {
         FrontFogON = true; // FrontFogON - Front fog ON - true
+        Jeep_Demo_FOG = 0; // Demo_Fog - disable
         // Front Fog enable. Left and right fogs disable
         if (Settings_FOG == true)
         {
@@ -722,23 +802,7 @@ void onCANReceive(int packetSize)
       }
       else
       {
-        if ( parameters[0] == 0x18 || parameters[0] == 0x38 || parameters[0] == 0x19 || parameters[0] == 0x1A ) //Check front fog on
-        {
-          FrontFogON = false; // FrontFogON - Front fog OFF - false
-        }
-        else
-        {
-          if (Demo_FOG != 0)
-          {
-            //Serial.println(F("---FrontFogON = false---"));
-            FrontFogON = false; // enabled Demo Fog
-          }
-          else
-          {
-            //Serial.println(F("---FrontFogON = true---"));
-            FrontFogON = true; // only headlights
-          }
-        }
+        FrontFogON = false; // FrontFogON - Front fog OFF - false
       }
       if (CAN_LOGS == true)
       {
@@ -803,7 +867,23 @@ void onCANReceive(int packetSize)
         Serial.println();
       }
       break;
-
+	  
+    case 0x1AA:
+      Jeep_Rain_Sensor = parameters[0];
+      if (CAN_LOGS == true)
+      {
+        Serial.print("0x");
+        Serial.print(packetID, HEX);
+        Serial.print(" Rain Sensor: ");
+        Serial.print(packetSize);
+        for (uint8_t x = 0; x < packetSize; x++)
+        {
+          Serial.print(" 0x"); Serial.print(parameters[x], HEX);
+        }
+        Serial.println();
+      }
+      break;
+	  
     case 0x3A0:
       if ( parameters[0] == 0x20 or parameters[0] == 0x01 or parameters[0] == 0x08 or parameters[0] == 0x10 or parameters[0] == 0x04 ) //левый или правый подрулевой середина, левый подрулевой вверх или вниз
       {
@@ -866,7 +946,8 @@ void onCANReceive(int packetSize)
         RKE_AZ_flag = true; // Enable RKE key Remote Start
         Serial.print(F("---Fobic Key Enabled Remote Start----")); Serial.println();
       }
-	  
+      //Jeep_RKE_Code = (( parameters[4] << 8 ) + parameters[5]);
+      
       if (CAN_LOGS == true)
       {
         Serial.print("0x");
@@ -891,14 +972,6 @@ void onCANReceive(int packetSize)
       {
         Alarm_Status = true; // Alarm_Status ON
         //Serial.print(F("---Alarm_Status ON----")); Serial.println();
-      }
-      if ( parameters[1] == 0x01) //Alarm_Status
-      {
-        if (digitalRead(Steering_Wheel_1) == 0)
-        { 
-          Serial.println(F("---Alarm ON: Disable Units Steering Wheel ---"));
-          digitalWrite(Steering_Wheel_1, HIGH);
-        }
       }
 	  
       if (CAN_LOGS == true)
@@ -931,8 +1004,24 @@ void onCANReceive(int packetSize)
       }
       break;
 
+    case 0x421:
+      Settings_Rain_Sensor == true;// LRSM installed
+      if (CAN_LOGS == true)
+      {
+        Serial.print("0x");
+        Serial.print(packetID, HEX);
+        Serial.print(" Ident LRSM: ");
+        Serial.print(packetSize);
+        for (uint8_t x = 0; x < packetSize; x++)
+        {
+          Serial.print(" 0x"); Serial.print(parameters[x], HEX);
+        }
+        Serial.println();
+      }
+      break;
+      
     case 0x43F:
-      //Settings_VES == false;// VES installed
+      Settings_VES == false;// VES installed
       if (CAN_LOGS == true)
       {
         Serial.print("0x");
@@ -992,7 +1081,6 @@ void reset_counter_az()
   // сброс счетчика количества АЗ
   Serial.println(F("---Reset counter AZ----"));
   canSend(0x11D, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00);// Flash High Beam
-  Serial.println(F("---Stop Reset counter AZ----"));
 }
 
 void beep()
@@ -1006,16 +1094,14 @@ void beep()
 void kill_all_fog()
 {
   // Disable left and right fog
-  if (digitalRead(EnableFogLeft) == 0)
+  if (digitalRead(EnableFogLeft) == HIGH)
   { 
-    digitalWrite(EnableFogLeft, HIGH);
-    delay(5);
+    digitalWrite(EnableFogLeft, LOW);
     Serial.println(F("---Kill All Fog: Left---")); 
   }
-  if (digitalRead(EnableFogRight) == 0)
+  if (digitalRead(EnableFogRight) == HIGH)
   { 
-    digitalWrite(EnableFogRight, HIGH);
-    delay(5);
+    digitalWrite(EnableFogRight, LOW);
     Serial.println(F("---Kill All Fog: Right---"));
   } 
 }
@@ -1026,14 +1112,77 @@ void Check_Alarm()
   if ( Alarm_ON == true )
   {
 	  // Постановка на охрану
-	  Alarm_ON = false;
+    // отключаем выход Steering_Wheel_1
+    if (digitalRead(Steering_Wheel_1) == HIGH)
+    { 
+      Serial.println(F("---Alarm ON: Disable Units Steering Wheel ---"));
+      digitalWrite(Steering_Wheel_1, LOW);
+    }
+    // прочее при постановке на охрану
+	  Alarm_ON = false;// завершение всего прочего при постановке на охрану
   }
 
   // снятие с охраны
   if ( Alarm_OFF == true )
   {
 	  // Снятие с охраны
-	  Alarm_OFF = false;
+    // прочее при снятии с охраны
+	  Alarm_OFF = false;// завершение всего прочего при снятии с охраны
+  }
+}
+
+void Check_Rain()
+{
+  // Авто-дворники 
+  if ( Settings_Rain_Sensor == true )
+  {
+    if ((Settings_HOT_TEMP == true) and (Jeep_Temp_Outdoor > 0x50)) // по температурному датчику
+    {
+      // ок, проверяем данные датчика дождя
+      if (Engine_Run == true and (Jeep_Rain_Sensor == 0x20) or (Jeep_Rain_Sensor == 0x21))
+      {
+        // Stage 1: редкие взмахи передних дворников
+        if (millis() - my_wiper_mirrors >= 30000)
+        {
+          my_wiper_mirrors = millis();
+          canSend(0x1F8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00);
+          Serial.println(F("---Rear Wiper Rain stage 1 = ---"));
+        }
+      }
+      if (Engine_Run == true and (Jeep_Rain_Sensor == 0x40) or (Jeep_Rain_Sensor == 0x41))
+      {
+        // Stage 2: быстрые взмахи передних дворников
+        if (millis() - my_wiper_mirrors >= 20000)
+        {
+          my_wiper_mirrors = millis();
+          canSend(0x1F8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00);
+          Serial.println(F("---Rear Wiper Rain stage 2 = ---"));
+        }
+      }
+      if (Engine_Run == true and (Jeep_Rain_Sensor == 0x60) or (Jeep_Rain_Sensor == 0x61))
+      {
+        // Stage 3: очень-быстрые взмахи передних дворников
+        if (millis() - my_wiper_mirrors >= 10000)
+        {
+          my_wiper_mirrors = millis();
+          canSend(0x1F8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00);
+          Serial.println(F("---Rear Wiper Rain stage 3 = ---"));
+        }
+      }
+    
+      if ( Jeep_Rain_Sensor == 0x01 || Jeep_Rain_Sensor == 0x21 || Jeep_Rain_Sensor == 0x41 || Jeep_Rain_Sensor == 0x61 ) //Check night
+      {
+        //Night 
+        //Serial.println(F(" Rain Sensor - Night"));
+        //canSend(0x1A2, 0x00, 0xEF, 0x16, 0xFF, 0x00, 0x00); 
+      }
+      if ( Jeep_Rain_Sensor == 0x00 || Jeep_Rain_Sensor == 0x20 || Jeep_Rain_Sensor == 0x40 || Jeep_Rain_Sensor == 0x60 ) //Check day
+      {
+        //Day
+        //Serial.println(F(" Rain Sensos - Day"));
+        //canSend(0x1A2, 0x00, 0x6E, 0x16, 0xFF, 0x00, 0x00); 
+      }
+    }
   }
 }
 
@@ -1059,17 +1208,17 @@ void checkSerial()
     if ( RX == 'A' || RX == 'a' ) //
     {
       // wake on can 
-      canSend(0x370, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00); delay(5);        
+      canSend(0x370, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00);        
     }
     if ( RX == 'u' || RX == 'U' ) //
     {
        // wake on can 
-       canSend(0x7FF, 0x00); delay(5);        
+       canSend(0x7FF, 0x00);        
     }
     if ( RX == 'd' || RX == 'D' ) //
     {
       // demo fog
-      Demo_FOG = 1;
+      Jeep_Demo_FOG = 1;
       Serial.println(F("---Demo Fog Enabled ---"));        
     }
     if ( RX == 'b' ) //
