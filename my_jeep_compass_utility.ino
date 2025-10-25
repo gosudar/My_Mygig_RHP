@@ -1,7 +1,7 @@
 /******************************************************************************************
  * Project    : MY Jeep Compass Utility/MyGIG RHP
  * Hack for my Jeep Compass MyGIG RHP and Utility
- * * Version 2.4.2
+ * * Version 2.4.4
  * Features:
  *  - Emulating VES presense to enable VIDEO AUX IN in MyGIG head unit
  *  - Auto-detection MyGIG and VES
@@ -72,6 +72,8 @@ bool RKE_Alarm_ON_flag = false;     // флаг постановки на охр
 bool Alarm_ON = false;              // постановка на охрану 
 bool RKE_Alarm_OFF_flag = false;    // флаг снятия с охраны (для доводчика)
 bool Alarm_OFF = false;             // снятие с охраны
+bool RKE_Alarm_ON_2_flag = false;   // флаг постановки на охрану (двойное нажатие)
+bool RKE_Alarm_OFF_2_flag = false;  // флаг снятия с охраны (двойное нажатие)
 bool RKE_AZ_flag = false;           // флаг нажатия кнопки Remote Start
 bool Remote_start = false;          // текущий статус Remote start true-on, false-off
 bool Alarm_Status = false;          // текущий статус Alarm status true-on, false-off
@@ -79,6 +81,8 @@ bool CAN_LOGS = false;              // Логи кан шины в консол�
 bool BEEP = false;                  // статус бибип при постановке а охрану-снятия с охраны
 bool Hasards_ON = false;            // включена аварийка с кнопки
 bool Hasards_OFF = false;           // разрешение на включение аварийки при ЗХ
+bool Mirrors_2_Open = false;		// флаг процесса расскладывание зеркал
+bool Mirrors_2_Close = false;		// флаг процесса складывание зеркал
 
 int Steering_Wheel_1 = 8;           // Инициализация переменной Steering_Wheel_1 к выводу 8
 int EnableFogLeft = 7;              // Инициализация переменной EnableFogLeft к выводу 7
@@ -139,7 +143,7 @@ void setup()
   }
 
   CAN.onReceive(onCANReceive);
-  Serial.println(".....  MY Jeep Compass utility start. version 2.4.2");
+  Serial.println(".....  MY Jeep Compass utility start. version 2.4.4");
 }
 
 void loop()
@@ -160,6 +164,25 @@ void loop()
   Check_Mirrors();        // Проверяем боковые зеркала
   Check_Alarm();          // Проверяем постановку, снятие с охраны 
   Check_Rain();           // Проверяем датчик дождя  
+
+
+// byte ti int
+//Jeep_RPM = (( parameters[0] << 8 ) + parameters[1], HEX);
+
+// int to byte
+//b[2] = (byte )((Jeep_RPM >> 8) & 0xff);
+//b[3] = (byte )(Jeep_RPM & 0xff);
+//Serial.print(Jeep_RPM);
+//Serial.print("------"); 
+//Serial.print("byte0=");
+//Serial.print((byte )((Jeep_RPM >> 8) & 0xff), HEX);
+//Serial.print(" byte1=");
+//Serial.print((byte )(Jeep_RPM & 0xff), HEX);
+//Serial.println();
+
+//Serial.print(" Jeep Batt=");
+//Serial.print(Jeep_Batt);
+//Serial.println();
 }
 
 void Enable_VES()
@@ -227,23 +250,7 @@ void Check_Mirrors()
     // Открывание зеркал
     if (Jeep_Mirrors_Open != 0)
     { 
-      // на всяк случай проверяем двойное нажатие + еще одно
-      if (Jeep_Mirrors_Open == 3)
-      {
-        Jeep_Mirrors_Open = 2;
-      }
-      // и еще на всяк случай
-      if (Jeep_Mirrors_Open == 6)
-      {
-        Jeep_Mirrors_Open = 5;
-      }
-      // и напоследок, еще на всяк случай
-      if (Jeep_Mirrors_Open == 8)
-      {
-        Jeep_Mirrors_Open = 7;
-      }
-
-      if (Jeep_Mirrors_Open == 1)// снято с охраны
+      if (Jeep_Mirrors_Open == 1 or Jeep_Mirrors_Open == 2 or Jeep_Mirrors_Open == 3)// снято с охраны
       {
         // Оk. Снято с охраны, проверяем двигатель
         if (keyState == 0x81 and Jeep_RPM > 500)
@@ -261,20 +268,15 @@ void Check_Mirrors()
       }
       if (Jeep_Mirrors_Open == 5)// 05 - расскладывание
       {
-        //Двойное нажатие или охрана выкл, двигатель работает, раскладываем зеркала 
-        if (Jeep_Batt < 11.0)
-        {  
-          Serial.println(F("---Open mirrors ! ---"));     
-          digitalWrite(Mirrors_Open, HIGH);
-        }
-        else
-        {
-          Serial.println(F("--- Отмена расскладывания. Напряжение аккумулятора менее 12В ! ---"));
-        }
-        my_mirrors = millis();
+        //Двойное нажатие или охрана выкл, двигатель работает, раскладываем зеркала   
+        Serial.println(F("---Open mirrors Start! ---"));     
+        digitalWrite(Mirrors_Open, HIGH);
+		my_mirrors = millis();
         Jeep_Mirrors_Open = 7;
+        Mirrors_2_Open = true;
       }
     }
+	
     // Закрывание зеркал
     // в движении не складыванием!
     if ((keyState == 0x81 and Jeep_RPM > 500) and (Jeep_Mirrors_Close != 0))
@@ -306,21 +308,16 @@ void Check_Mirrors()
       if ( Jeep_Mirrors_Close == 2)// проверяем Stage 02
       {
         //Двойное нажатие - складываем зеркала 
-        if (Jeep_Batt < 11.0)
-        { 
-          Serial.println(F("---Close mirrors !!!---"));     
-          digitalWrite(Mirrors_Close, HIGH);
-        }
-        else
-        {
-          Serial.println(F("--- Отмена складывания. Напряжение аккумулятора менее 12В ! ---"));
-        }
-        my_mirrors = millis();
+        Serial.println(F("---Close mirrors Start!!!---"));     
+        digitalWrite(Mirrors_Close, HIGH);
+		my_mirrors = millis();
         Jeep_Mirrors_Close = 7;
+        Mirrors_2_Close = true;
       }
     }
+	
     // завершение расскладывания
-    if ( Jeep_Mirrors_Open == 7)// 07 - временная пауза. завершение процесса
+    if ( Mirrors_2_Open == true)
     {
       //врееменная пауза. завершение процесса       
       if (millis() - my_mirrors >= 1000)
@@ -328,10 +325,12 @@ void Check_Mirrors()
         // время ожидания вышло.
         digitalWrite(Mirrors_Open, LOW);
         Jeep_Mirrors_Open = 0;
-       }
+        Mirrors_2_Open = false;
+        Serial.println(F("---Open mirrors Stop! ---")); 
+      }
     }
     // завершение складывания
-    if ( Jeep_Mirrors_Close == 7)// 07 - временная пауза. завершение процесса
+    if ( Mirrors_2_Close == true)
     {
       //временная пауза. завершение процесса       
       if (millis() - my_mirrors >= 1000)
@@ -339,6 +338,8 @@ void Check_Mirrors()
         // время ожидания вышло.
         digitalWrite(Mirrors_Close, LOW);
         Jeep_Mirrors_Close = 0;
+        Mirrors_2_Close = false;
+        Serial.println(F("---Close mirrors Stop!!!---")); 
       }
     }    
   }
@@ -346,6 +347,8 @@ void Check_Mirrors()
   {
     Jeep_Mirrors_Close = 0;
     Jeep_Mirrors_Open = 0;
+    Mirrors_2_Open = false;
+    Mirrors_2_Close = false;
     // на всякий случай, проверяем что расскладывание выкл
     if (digitalRead(Mirrors_Open) == HIGH)
     {
@@ -391,11 +394,16 @@ void Check_RKE_Button()
     Serial.println(F("---Fobik Key Enabled = Alarm ON ---"));	  
     Jeep_Mirrors_Open = 0;// зеркала открывать не нужно
     Jeep_Mirrors_Close += 1;// зеркала складывать нужно, след шаг
+    if (RKE_Alarm_ON_2_flag == true)
+    {
+      Jeep_Mirrors_Close = 2;
+    }
     if (Jeep_Mirrors_Close == 1)
     { 
       my_mirrors = millis();// временная задержка
     }	  
     RKE_Alarm_ON_flag = false;
+    RKE_Alarm_ON_2_flag = false; // Двойное нажатие
   }
 
   //RKE_Alarm_OFF Снятие с охраны
@@ -410,7 +418,12 @@ void Check_RKE_Button()
     //if (Jeep_Mirrors_Open == 1)
     //{ 
       //my_mirrors = millis();// временная задержка 
-    //}  
+    //}
+    // проверяем двойное нажатие
+    if (RKE_Alarm_OFF_2_flag == true)
+    {
+      Jeep_Mirrors_Open = 2;
+    }	
     if (BEEP == true)
     {
       beep();// Beep
@@ -418,6 +431,7 @@ void Check_RKE_Button()
       beep();// Beep
     }
     RKE_Alarm_OFF_flag = false;
+    RKE_Alarm_OFF_2_flag = false;
   }
 }
 
@@ -622,15 +636,14 @@ void Check_FOG()
       else
       {
         Jeep_Demo_FOG = 0;
-        kill_all_fog(); 
-      }
-      //Двигатель остановлен - отключаем демо и туманки
-      if (Engine_Run == false)
-      {
-        kill_all_fog();
-        Jeep_Demo_FOG = 0;
       }
     }
+    //Двигатель остановлен - отключаем демо и туманки
+    if (Engine_Run == false)
+    {
+      kill_all_fog();
+      Jeep_Demo_FOG = 0;
+    }    
   }
 }
 
@@ -920,7 +933,7 @@ void onCANReceive(int packetSize)
       break;
 
     case 0x012:      
-      if (parameters[0] == 0x08 and (parameters[1] == 0x01 or parameters[1] == 0x02 or parameters[1] == 0x03 or parameters[1] == 0x04 or parameters[1] == 0x05 or parameters[1] == 0x06  or parameters[1] == 0x07  or parameters[1] == 0x08))
+      if (parameters[0] == 0x08)
       {
         reset_az_stage += 1;
         Serial.print(F("---Counter Remote Start Updated = "));Serial.print(reset_az_stage);Serial.print(F("----")); Serial.println();
@@ -931,17 +944,29 @@ void onCANReceive(int packetSize)
         RKE_Trunk_Button_flag = true; // Enable RKE key Trunk
         Serial.print(F("---Fobic Key Enabled Trunc----")); Serial.println();
       }
-      if ( (parameters[0] == 0x01) and (parameters[1] == 0x01 or parameters[1] == 0x02 or parameters[1] == 0x03 or parameters[1] == 0x04 or parameters[1] == 0x05 or parameters[1] == 0x06  or parameters[1] == 0x07  or parameters[1] == 0x08) ) //RKE key Alarm ON
+      if (parameters[0] == 0x01) //RKE key Alarm ON
       {
         RKE_Alarm_ON_flag = true; // Enable RKE key Alarm ON
         Serial.print(F("---Fobic Key Enabled Alarm ON----")); Serial.println();
       }
-      if (parameters[0] == 0x03 and (parameters[1] == 0x01 or parameters[1] == 0x02 or parameters[1] == 0x03 or parameters[1] == 0x04 or parameters[1] == 0x05 or parameters[1] == 0x06  or parameters[1] == 0x07  or parameters[1] == 0x08)) //RKE key Alarm OFF
+      if (parameters[0] == 0x02) //RKE key Alarm ON Двойное нажатие
+      {
+        RKE_Alarm_ON_flag = true; // Enable RKE key Alarm ON
+        RKE_Alarm_ON_2_flag = true; // Двойное нажатие 
+        Serial.print(F("---Fobic Key Enabled Alarm ON Двойное нажатие----")); Serial.println();
+      }
+      if (parameters[0] == 0x03) //RKE key Alarm OFF
       {
         RKE_Alarm_OFF_flag = true; // Enable RKE key Alarm OFF
         Serial.print(F("---Fobic Key Enabled Alarm OFF----")); Serial.println();
       }
-      if ( (parameters[0] == 0x09) and (parameters[1] == 0x01 or parameters[1] == 0x02 or parameters[1] == 0x03 or parameters[1] == 0x04 or parameters[1] == 0x05 or parameters[1] == 0x06  or parameters[1] == 0x07  or parameters[1] == 0x08) ) //RKE key Alarm ON
+      if (parameters[0] == 0x04) //RKE key Alarm OFF Двойное нажатие
+      {
+        RKE_Alarm_OFF_flag = true; // Enable RKE key Alarm OFF
+        RKE_Alarm_OFF_2_flag = true; // Двойное нажатие 
+        Serial.print(F("---Fobic Key Enabled Alarm OFF Двойное нажатие----")); Serial.println();
+      }
+      if (parameters[0] == 0x09) //RKE key Alarm ON
       {
         RKE_AZ_flag = true; // Enable RKE key Remote Start
         Serial.print(F("---Fobic Key Enabled Remote Start----")); Serial.println();
@@ -1081,6 +1106,7 @@ void reset_counter_az()
   // сброс счетчика количества АЗ
   Serial.println(F("---Reset counter AZ----"));
   canSend(0x11D, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00);// Flash High Beam
+  Serial.println(F("---Stop Reset counter AZ----"));
 }
 
 void beep()
@@ -1111,7 +1137,7 @@ void Check_Alarm()
   // постанова на охрану
   if ( Alarm_ON == true )
   {
-	  // Постановка на охрану
+    // Постановка на охрану
     // отключаем выход Steering_Wheel_1
     if (digitalRead(Steering_Wheel_1) == HIGH)
     { 
@@ -1119,15 +1145,15 @@ void Check_Alarm()
       digitalWrite(Steering_Wheel_1, LOW);
     }
     // прочее при постановке на охрану
-	  Alarm_ON = false;// завершение всего прочего при постановке на охрану
+    Alarm_ON = false;// завершение всего прочего при постановке на охрану
   }
 
   // снятие с охраны
   if ( Alarm_OFF == true )
   {
-	  // Снятие с охраны
+    // Снятие с охраны
     // прочее при снятии с охраны
-	  Alarm_OFF = false;// завершение всего прочего при снятии с охраны
+    Alarm_OFF = false;// завершение всего прочего при снятии с охраны
   }
 }
 
