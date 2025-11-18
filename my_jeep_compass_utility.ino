@@ -1024,7 +1024,7 @@ void onCANReceive(int packetSize)
       break;
 
     case 0x421:
-      Settings_Rain_Sensor == true;// LRSM installed
+      Settings_Rain_Sensor = true;// LRSM installed
       if (CAN_LOGS == true)
       {
         Serial.print("0x");
@@ -1040,7 +1040,7 @@ void onCANReceive(int packetSize)
       break;
       
     case 0x43F:
-      Settings_VES == false;// VES installed
+      Settings_VES = false;// VES installed
       if (CAN_LOGS == true)
       {
         Serial.print("0x");
@@ -1160,27 +1160,29 @@ void Check_Rain()
     if ((Settings_HOT_TEMP == true) and (Jeep_Temp_Outdoor > 0x50)) // по температурному датчику
     {
       // ок, проверяем данные датчика дождя
-      if (Engine_Run == true and (Jeep_Rain_Sensor == 0x20) or (Jeep_Rain_Sensor == 0x21))
+      //Serial.println(Jeep_Rain_Sensor);
+      if (Engine_Run == true and ((Jeep_Rain_Sensor == 0x20) or (Jeep_Rain_Sensor == 0x21)))
       {
         // Stage 1: редкие взмахи передних дворников
-		// Ничего не делаем.
+        // Ничего не делаем.
+        //my_wiper_mirrors = millis();
       }
-      if (Engine_Run == true and (Jeep_Rain_Sensor == 0x40) or (Jeep_Rain_Sensor == 0x41))
+      if (Engine_Run == true and ((Jeep_Rain_Sensor == 0x40) or (Jeep_Rain_Sensor == 0x41)))
       {
         // Stage 2: быстрые взмахи передних дворников
-		// раз в 20 сек
-        if (millis() - my_wiper_mirrors >= 20000)
+        // раз в 10 сек
+        if (millis() - my_wiper_mirrors >= 10000)
         {
           my_wiper_mirrors = millis();
           canSend(0x1F8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00);
           Serial.println(F("---Rear Wiper Rain stage 2 = ---"));
         }
       }
-      if (Engine_Run == true and (Jeep_Rain_Sensor == 0x60) or (Jeep_Rain_Sensor == 0x61))
+      if (Engine_Run == true and ((Jeep_Rain_Sensor == 0x60) or (Jeep_Rain_Sensor == 0x61)))
       {
         // Stage 3: очень-быстрые взмахи передних дворников
-		// раз в 10 сек
-        if (millis() - my_wiper_mirrors >= 10000)
+        // раз в 5 сек
+        if (millis() - my_wiper_mirrors >= 5000)
         {
           my_wiper_mirrors = millis();
           canSend(0x1F8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00);
